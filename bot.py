@@ -85,23 +85,31 @@ async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[An
         logger.error(f"Failed to send daily summary to {chat_id}: {e}")
 
 
-def check_permission(sender_id: Optional[int]) -> bool:
+def check_permission(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
     """Checks if a user is permitted to view financial reports."""
     if sender_id is None:
         return False
+    # If sent as anonymous group admin in the monitored group, permit access
+    if chat_id is not None and sender_id == chat_id:
+        return True
+    if config.MONITOR_CHAT_ID and sender_id == config.MONITOR_CHAT_ID:
+        return True
     if not config.RESTRICT_REPORTS_TO_ADMIN:
         return True
     if not config.ADMIN_USER_IDS:
-        # If no admin IDs are configured in .env yet, allow access to prevent lockout
         return True
     if sender_id in config.ADMIN_USER_IDS:
         return True
     return db.is_user_authorized(sender_id)
 
-def is_admin(sender_id: Optional[int]) -> bool:
+def is_admin(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
     """Checks if a user has full Owner/Super Admin privileges."""
     if sender_id is None:
         return False
+    if chat_id is not None and sender_id == chat_id:
+        return True
+    if config.MONITOR_CHAT_ID and sender_id == config.MONITOR_CHAT_ID:
+        return True
     if not config.ADMIN_USER_IDS:
         return True
     return sender_id in config.ADMIN_USER_IDS
@@ -114,7 +122,7 @@ def setup_handlers(client: TelegramClient):
     @client.on(events.CallbackQuery)
     async def callback_handler(event: events.CallbackQuery.Event):
         sender_id = event.sender_id
-        if not check_permission(sender_id):
+        if not check_permission(sender_id, event.chat_id):
             await event.answer(
                 "⛔ អ្នកមិនមានសិទ្ធិមើលរបាយការណ៍ហិរញ្ញវត្ថុនេះទេ! សូមទាក់ទងម្ចាស់ហាង (Admin)។",
                 alert=True
@@ -306,7 +314,7 @@ def setup_handlers(client: TelegramClient):
             "/sync", ".sync", "/backfill"
         )
         if any(cmd.startswith(p) for p in report_cmd_prefixes):
-            if not check_permission(event.sender_id):
+            if not check_permission(event.sender_id, chat_id):
                 await event.reply(
                     "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Access Denied)</b>\n\n"
                     "🔒 របាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូល ត្រូវបានការពារដោយសុវត្ថិភាពខ្ពស់។\n"
