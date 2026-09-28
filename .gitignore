@@ -17,9 +17,5 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Database (optional - keep private on git)
-*.db
-*.sqlite3
-
 # Logs
 *.log
