@@ -214,3 +214,37 @@ def format_range_summary(summary: Dict[str, Any], title_prefix: str = "៧ថ្
         f"🇰🇭 <b>សរុបប្រាក់រៀល (KHR):</b> <b><code>{khr_str}</code></b> ({count_khr} លើក)\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     )
+
+
+def format_recent_transactions(transactions: List[Dict[str, Any]], limit: int = 5) -> str:
+    """
+    Formats the list of recent transactions in Khmer.
+    """
+    if not transactions:
+        return (
+            "🧾 <b>ប្រវត្តិប្រតិបត្តិការចុងក្រោយ (Recent History)</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<i>📭 មិនទាន់មានប្រវត្តិប្រតិបត្តិការទូទាត់ក្នុងប្រព័ន្ធនៅឡើយទេ។</i>"
+        )
+
+    count = len(transactions)
+    lines = [
+        f"🧾 <b>ប្រវត្តិប្រតិបត្តិការចុងក្រោយ ({count} លើក)</b>\n",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    ]
+    for idx, txn in enumerate(transactions, 1):
+        amt_str = format_currency(txn["amount"], txn["currency"])
+        payer = txn.get("payer_name") or "ភ្ញៀវ (Customer)"
+        bank = txn.get("bank_name") or "KHQR"
+        ref = txn.get("ref_code") or "N/A"
+        time_str = txn.get("transaction_time") or ""
+        lines.append(
+            f"<b>{idx}. {amt_str}</b> ({bank})\n"
+            f"   👤 អតិថិជន: <b>{payer}</b>\n"
+            f"   🔖 លេខកូដយោង: <code>{ref}</code>\n"
+            f"   ⏰ ម៉ោង: <code>{time_str}</code>\n\n"
+        )
+    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+    lines.append(f"💡 <i>វាយ <code>/history 10</code> ដើម្បីមើលច្រើនជាងនេះ</i>")
+    return "".join(lines)
+

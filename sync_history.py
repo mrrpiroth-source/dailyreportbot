@@ -17,6 +17,7 @@ if sys.platform == "win32":
 
 from telethon import TelegramClient
 from typing import cast, Any, Awaitable
+import os
 import config
 from database import Database, CAMBODIA_TZ, get_cambodia_today_str
 from parser import KHQRParser
@@ -32,9 +33,38 @@ async def sync_previous_messages(client: TelegramClient, chat_id, limit: int = 2
     """
     Fetches past messages from chat_id, parses any KHQR payment notifications,
     and saves them to SQLite database with their original historical timestamp.
+    Safely handles bot restrictions by using user_session if available.
     """
     print(f"\n🔄 កំពុងទាញយកសារចាស់ៗចំនួន {limit} សារចុងក្រោយពី Group...")
     print("=" * 65)
+
+    user_client = None
+    active_client = client
+
+    # Telegram bot restriction check: Bot accounts cannot invoke GetHistoryRequest on groups.
+    try:
+        me = await client.get_me()
+        if getattr(me, 'bot', False):
+            if os.path.exists("user_session.session"):
+                logger.info("Bot account detected. Utilizing authenticated 'user_session' for historical backfill...")
+                user_client = TelegramClient('user_session', config.API_ID, config.API_HASH)
+                await user_client.connect()
+                active_client = user_client
+            else:
+                logger.warning("Bot accounts cannot read past message history (Telegram Bot API restriction).")
+                print("⚠️ Telegram មិនអនុញ្ញាតឱ្យ Bot Account អានសារចាស់ៗក្នុង Group ឡើយ (GetHistoryRequest Restricted)!")
+                print("💡 រាល់ការទូទាត់ថ្មីៗដែលផ្ញើចូល Group នឹងត្រូវបានកត់ត្រាដោយស្វ័យប្រវត្តក្នុងពេលជាក់ស្តែង (Real-time)។")
+                return {
+                    "total_scanned": 0,
+                    "found_payments": 0,
+                    "new_added": 0,
+                    "duplicates": 0,
+                    "usd_total": 0.0,
+                    "khr_total": 0.0,
+                    "bot_restricted": True
+                }
+    except Exception as e:
+        logger.debug(f"Check bot identity error: {e}")
 
     total_scanned = 0
     found_payments = 0
@@ -45,7 +75,7 @@ async def sync_previous_messages(client: TelegramClient, chat_id, limit: int = 2
     khr_total = 0.0
 
     try:
-        async for msg in client.iter_messages(chat_id, limit=limit):
+        async for msg in active_client.iter_messages(chat_id, limit=limit):
             if not msg.text:
                 continue
 
@@ -96,12 +126,16 @@ async def sync_previous_messages(client: TelegramClient, chat_id, limit: int = 2
             "new_added": new_added,
             "duplicates": duplicates,
             "usd_total": usd_total,
-            "khr_total": khr_total
+            "khr_total": khr_total,
+            "bot_restricted": False
         }
 
     except Exception as e:
         print(f"❌ កំហុសក្នុងការទាញយកសារ: {e}")
         return None
+    finally:
+        if user_client and user_client.is_connected():
+            await user_client.disconnect()
 
 async def main():
     if not config.API_ID or not config.API_HASH:
@@ -113,10 +147,16 @@ async def main():
         print("❌ សូមបំពេញ MONITOR_CHAT_ID នៅក្នុង .env (អាចប្រើ get_groups.py ដើម្បីស្វែងរក Chat ID)")
         return
 
-    session_name = "khqr_session"
+    if os.path.exists("user_session.session"):
+        session_name = "user_session"
+    else:
+        session_name = "khqr_session"
+
     client = TelegramClient(session_name, config.API_ID, config.API_HASH)
 
-    if config.BOT_TOKEN:
+    if session_name == "user_session":
+        await client.connect()
+    elif config.BOT_TOKEN:
         await cast(Awaitable[Any], client.start(bot_token=config.BOT_TOKEN))
     elif config.PHONE_NUMBER:
         await cast(Awaitable[Any], client.start(phone=config.PHONE_NUMBER))
@@ -124,7 +164,11 @@ async def main():
         await cast(Awaitable[Any], client.start())
 
     limit = config.SYNC_LIMIT or 200
-    await sync_previous_messages(client, chat_id, limit=limit)
+    try:
+        await sync_previous_messages(client, chat_id, limit=limit)
+    finally:
+        if client.is_connected():
+            await client.disconnect()
 
 if __name__ == "__main__":
     asyncio.run(main())

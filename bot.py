@@ -38,7 +38,8 @@ from reporter import (
     format_monthly_summary,
     format_range_summary,
     format_transaction_alert,
-    format_currency
+    format_currency,
+    format_recent_transactions
 )
 
 # Configure logging
@@ -64,7 +65,8 @@ def get_menu_buttons():
             Button.inline("📈 ប្រចាំខែ (Month)", data=b"btn_month"),
         ],
         [
-            Button.inline("📆 របាយការណ៍ប្រចាំឆ្នាំ (Year)", data=b"btn_year")
+            Button.inline("📆 របាយការណ៍ប្រចាំឆ្នាំ (Year)", data=b"btn_year"),
+            Button.inline("🧾 ប្រវត្តិចុងក្រោយ (History)", data=b"btn_history"),
         ]
     ]
 
@@ -91,6 +93,7 @@ async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[An
 # Cache for pending access requests and debouncing notifications
 pending_requests: Dict[int, dict] = {}
 last_request_time: Dict[int, float] = {}
+last_callback_time: Dict[str, float] = {}
 
 
 def check_permission(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
@@ -222,6 +225,14 @@ def setup_handlers(client: TelegramClient):
         sender_id = event.sender_id
         data = event.data
 
+        # Debounce rapid button taps from same user/button within 1.5 seconds
+        cb_key = f"{sender_id}_{data}"
+        now_ts = time.time()
+        if cb_key in last_callback_time and (now_ts - last_callback_time[cb_key]) < 1.5:
+            await event.answer()
+            return
+        last_callback_time[cb_key] = now_ts
+
         # Handle Owner Approval / Denial buttons in Owner's private chat
         if data.startswith(b"appr_"):
             if not is_admin(sender_id, event.chat_id):
@@ -339,6 +350,12 @@ def setup_handlers(client: TelegramClient):
             current_year = get_cambodia_now().strftime("%Y")
             summary = db.get_summary_by_year(current_year)
             msg = format_yearly_summary(summary)
+            await event.respond(msg, parse_mode="html", buttons=get_menu_buttons())
+            await event.answer()
+
+        elif data == b"btn_history":
+            txns = db.get_recent_transactions(limit=5)
+            msg = format_recent_transactions(txns, limit=5)
             await event.respond(msg, parse_mode="html", buttons=get_menu_buttons())
             await event.answer()
 
@@ -480,6 +497,7 @@ def setup_handlers(client: TelegramClient):
             "/week", ".week", "/weekly", ".weekly", "សប្តាហ៍នេះ",
             "/month", ".month", "បូកសរុបខែនេះ",
             "/year", ".year", "/yearly", ".yearly", "ប្រចាំឆ្នាំ",
+            "/history", ".history", "/recent", ".recent", "ប្រវត្តិ", "ប្រវត្តិចុងក្រោយ",
             "/report", ".report",
             "/sync", ".sync", "/backfill"
         )
@@ -550,6 +568,16 @@ def setup_handlers(client: TelegramClient):
             await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
             return
 
+        elif cmd in ("/history", ".history", "/recent", ".recent", "ប្រវត្តិ", "ប្រវត្តិចុងក្រោយ"):
+            parts = text_stripped.split()
+            limit = 5
+            if len(parts) > 1 and parts[1].isdigit():
+                limit = min(int(parts[1]), 50)
+            txns = db.get_recent_transactions(limit=limit)
+            msg = format_recent_transactions(txns, limit=limit)
+            await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
+            return
+
         elif cmd.startswith(("/report", ".report")):
             parts = text_stripped.split()
             if len(parts) > 1:
@@ -583,7 +611,15 @@ def setup_handlers(client: TelegramClient):
             
             from sync_history import sync_previous_messages
             res = await sync_previous_messages(client, target_chat, limit=limit)
-            if res:
+            if res and res.get("bot_restricted"):
+                await event.reply(
+                    "⚠️ <b>គណនី Bot មិនមានសិទ្ធិអានសារចាស់ៗក្នុង Group ឡើយ (Telegram Bot Restriction):</b>\n\n"
+                    "Telegram មិនអនុញ្ញាតឱ្យ Bot ប្រើប្រាស់មុខងារ GetHistoryRequest បានឡើយ។\n"
+                    "💡 ប៉ុន្តែរាល់ការទូទាត់ថ្មីៗដែលផ្ញើចូល Group នឹងត្រូវបានកត់ត្រាដោយស្វ័យប្រវត្តក្នុងពេលជាក់ស្តែង (Real-time)!",
+                    parse_mode="html",
+                    buttons=get_menu_buttons()
+                )
+            elif res:
                 reply_text = (
                     "✅ <b>ការទាញយកទិន្នន័យចាស់ៗជោគជ័យ:</b>\n\n"
                     f"• សារដែលបានពិនិត្យ: <b>{res['total_scanned']}</b> សារ\n"
@@ -591,11 +627,11 @@ def setup_handlers(client: TelegramClient):
                     f"• ប្រតិបត្តិការថ្មីដែលបានកត់ត្រា: <b>{res['new_added']}</b> លើក\n"
                     f"• ប្រតិបត្តិការចាស់ដែលមានរួចហើយ: <b>{res['duplicates']}</b> លើក\n"
                     f"• ទឹកប្រាក់ថ្មីដែលទើបកត់ត្រា: <b>${res['usd_total']:,.2f}</b> | <b>{int(res['khr_total']):,} ៛</b>\n\n"
-                    "💡 <i>លោកអ្នកអាចវាយ <code>/today</code> ឬ <code>/week</code> ដើម្បីមើលរបាយការណ៍បច្ចុប្បន្នភាព!</i>"
+                    "💡 <i>លោកអ្នកអាចវាយ <code>/today</code> ឬ <code>/history</code> ដើម្បីមើលរបាយការណ៍បច្ចុប្បន្នភាព!</i>"
                 )
                 await event.reply(reply_text, parse_mode="html", buttons=get_menu_buttons())
             else:
-                await event.reply("⚠️ មិនអាចទាញយកសារចាស់ៗបានទេ។ សូមពិនិត្យមើលសិទ្ធិរបស់ Bot ក្នុង Group។", parse_mode="html")
+                await event.reply("⚠️ មិនអាចទាញយកសារចាស់ៗបានទេ។ សូមពិនិត្យមើលសិទ្ធិរបស់ Bot ក្នុង Group។", parse_mode="html", buttons=get_menu_buttons())
             return
 
         elif cmd in ("/menu", ".menu", "/start", ".start", "/help", ".help"):
@@ -610,14 +646,19 @@ def setup_handlers(client: TelegramClient):
                 "• <b>របាយការណ៍ប្រចាំឆ្នាំ:</b> បង្ហាញចំណូលសរុបប្រចាំឆ្នាំ និងតាមខែនីមួយៗ\n\n"
                 "🛡️ <b>សុវត្ថិភាព និងការគ្រប់គ្រងសិទ្ធិ:</b>\n"
                 "• <code>/myid</code> — មើល Telegram User ID របស់អ្នក\n"
+                "• <code>/today</code> — មើលរបាយការណ៍ថ្ងៃនេះ\n"
+                "• <code>/yesterday</code> — មើលរបាយការណ៍ម្សិលមិញ\n"
+                "• <code>/week</code> — មើលរបាយការណ៍ ៧ថ្ងៃចុងក្រោយ\n"
+                "• <code>/month</code> — មើលរបាយការណ៍ប្រចាំខែ\n"
                 "• <code>/year</code> — មើលរបាយការណ៍ប្រចាំឆ្នាំ\n"
+                "• <code>/history [ចំនួន]</code> — មើលប្រវត្តិប្រតិបត្តិការចុងក្រោយ (ឧទាហរណ៍: <code>/history 10</code>)\n"
             )
             if is_adm:
                 help_text += (
                     "• <code>/adduser ID [role]</code> — បន្ថែមសិទ្ធិឱ្យបុគ្គលិក\n"
                     "• <code>/removeuser ID</code> — ដកសិទ្ធិបុគ្គលិក\n"
                     "• <code>/users</code> — បង្ហាញបញ្ជីបុគ្គលិកមានសិទ្ធិ\n"
-                    "• <code>/sync</code> — ទាញយកសារចាស់ៗពីមុនមកបូកបញ្ចូល\n\n"
+                    "• <code>/sync [ចំនួន]</code> — ទាញយកសារចាស់ៗពីមុនមកបូកបញ្ចូល\n\n"
                 )
             help_text += "👇 <b>សូមចុចប៊ូតុងខាងក្រោមដើម្បីមើលរបាយការណ៍:</b>"
             await event.reply(help_text, parse_mode="html", buttons=get_menu_buttons())
