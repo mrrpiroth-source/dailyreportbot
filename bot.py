@@ -14,8 +14,9 @@ import os
 import asyncio
 import logging
 import datetime
+import time
 from zoneinfo import ZoneInfo
-from typing import Optional, Any, cast, Awaitable
+from typing import Optional, Any, cast, Awaitable, Dict
 
 # Ensure UTF-8 output on Windows terminals
 if sys.platform == "win32":
@@ -85,9 +86,17 @@ async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[An
         logger.error(f"Failed to send daily summary to {chat_id}: {e}")
 
 
+# Cache for pending access requests and debouncing notifications
+pending_requests: Dict[int, dict] = {}
+last_request_time: Dict[int, float] = {}
+
+
 def check_permission(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
     """Checks if a user is permitted to view financial reports."""
+    # In Telegram groups, ONLY Group Admins can toggle 'Send anonymously' (Remain anonymous)
     if sender_id is None:
+        if chat_id is not None and (chat_id == config.MONITOR_CHAT_ID or chat_id == config.REPORT_CHAT_ID):
+            return True
         return False
     # If sent as anonymous group admin in the monitored group, permit access
     if chat_id is not None and sender_id == chat_id:
@@ -102,9 +111,12 @@ def check_permission(sender_id: Optional[int], chat_id: Optional[int] = None) ->
         return True
     return db.is_user_authorized(sender_id)
 
+
 def is_admin(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
     """Checks if a user has full Owner/Super Admin privileges."""
     if sender_id is None:
+        if chat_id is not None and (chat_id == config.MONITOR_CHAT_ID or chat_id == config.REPORT_CHAT_ID):
+            return True
         return False
     if chat_id is not None and sender_id == chat_id:
         return True
@@ -115,6 +127,90 @@ def is_admin(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
     return sender_id in config.ADMIN_USER_IDS
 
 
+async def notify_owner_of_access_request(
+    client: TelegramClient,
+    user_id: int,
+    chat_id: int,
+    user_entity: Optional[Any] = None,
+    source: str = "command"
+):
+    """
+    Sends an immediate direct message to Bot Owner(s) when an unauthorized member
+    requests access or attempts to view reports, with 1-click [Approve] / [Deny] buttons.
+    """
+    now = time.time()
+    # Debounce: don't spam owner if clicked repeatedly within 30 seconds
+    if user_id in last_request_time and (now - last_request_time[user_id]) < 30:
+        return
+
+    last_request_time[user_id] = now
+
+    # Extract user details
+    full_name = "User"
+    username_str = "គ្មាន Username"
+    if user_entity:
+        first = getattr(user_entity, "first_name", "") or ""
+        last = getattr(user_entity, "last_name", "") or ""
+        full_name = f"{first} {last}".strip() or "User"
+        uname = getattr(user_entity, "username", None)
+        if uname:
+            username_str = f"@{uname}"
+    else:
+        try:
+            ent = await client.get_entity(user_id)
+            first = getattr(ent, "first_name", "") or ""
+            last = getattr(ent, "last_name", "") or ""
+            full_name = f"{first} {last}".strip() or "User"
+            uname = getattr(ent, "username", None)
+            if uname:
+                username_str = f"@{uname}"
+        except Exception:
+            full_name = f"User {user_id}"
+
+    # Extract chat title
+    chat_title = "Meeting cafe ☕"
+    try:
+        chat_ent = await client.get_entity(chat_id)
+        chat_title = getattr(chat_ent, "title", "Group") or "Meeting cafe ☕"
+    except Exception:
+        pass
+
+    # Save to memory cache
+    pending_requests[user_id] = {
+        "user_id": user_id,
+        "full_name": full_name,
+        "username": username_str,
+        "chat_id": chat_id,
+        "chat_title": chat_title,
+    }
+
+    current_time_str = get_cambodia_now().strftime("%Y-%m-%d %H:%M:%S")
+
+    alert_msg = (
+        "🔔 <b>មានសំណើសុំសិទ្ធិមើលរបាយការណ៍ហិរញ្ញវត្ថុថ្មី!</b>\n\n"
+        f"👥 <b>មកពី Group:</b> {chat_title}\n"
+        f"👤 <b>ឈ្មោះ:</b> {full_name}\n"
+        f"🏷️ <b>Username:</b> {username_str}\n"
+        f"🔢 <b>Telegram User ID:</b> <code>{user_id}</code>\n"
+        f"⏰ <b>ម៉ោង:</b> {current_time_str}\n\n"
+        "👉 <i>តើលោកអ្នកយល់ព្រមអនុញ្ញាតឱ្យបុគ្គលិកនេះមើលរបាយការណ៍លក់ដែរឬទេ?</i>"
+    )
+
+    approval_buttons = [
+        [
+            Button.inline("✅ យល់ព្រម (Approve Staff)", data=f"appr_{user_id}".encode()),
+            Button.inline("❌ បដិសេធ (Deny)", data=f"deny_{user_id}".encode()),
+        ]
+    ]
+
+    for admin_id in config.ADMIN_USER_IDS:
+        try:
+            await client.send_message(admin_id, alert_msg, parse_mode="html", buttons=approval_buttons)
+            logger.info(f"Forwarded access request for User {user_id} ({full_name}) to Owner {admin_id}")
+        except Exception as e:
+            logger.warning(f"Could not send DM to Owner {admin_id}: {e}")
+
+
 def setup_handlers(client: TelegramClient):
     """Sets up event handlers for incoming messages, commands, and button clicks."""
 
@@ -122,14 +218,91 @@ def setup_handlers(client: TelegramClient):
     @client.on(events.CallbackQuery)
     async def callback_handler(event: events.CallbackQuery.Event):
         sender_id = event.sender_id
+        data = event.data
+
+        # Handle Owner Approval / Denial buttons in Owner's private chat
+        if data.startswith(b"appr_"):
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មានតែម្ចាស់អាជីវកម្ម (Owner) ប៉ុណ្ណោះដែលអាច Approve បាន!", alert=True)
+                return
+
+            target_id = int(data.decode().split("_")[1])
+            req_info = pending_requests.get(target_id, {})
+            target_name = req_info.get("full_name") or f"User {target_id}"
+            target_uname = req_info.get("username")
+            if target_uname and target_uname.startswith("@"):
+                target_uname = target_uname[1:]
+
+            # Add to authorized database
+            db.add_authorized_user(
+                user_id=target_id,
+                username=target_uname,
+                full_name=target_name,
+                role="staff",
+                added_by=sender_id
+            )
+
+            now_str = get_cambodia_now().strftime("%Y-%m-%d %H:%M:%S")
+            approved_text = (
+                "✅ <b>បានអនុញ្ញាតសិទ្ធិដោយជោគជ័យ!</b>\n\n"
+                f"👤 បុគ្គលិក: <b>{target_name}</b> (<code>{target_id}</code>)\n"
+                f"🛡️ តួនាទី: <b>STAFF (បុគ្គលិកមានសិទ្ធិ)</b>\n"
+                f"⏰ ម៉ោងអនុម័ត: <b>{now_str}</b>\n\n"
+                "<i>បុគ្គលិកនេះអាចមើលរបាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូលបានហើយ។</i>"
+            )
+            await event.edit(approved_text, parse_mode="html")
+            await event.answer("✅ បានអនុម័តជោគជ័យ!")
+
+            # Announce in the group chat so staff knows immediately
+            notify_chat = req_info.get("chat_id") or config.MONITOR_CHAT_ID
+            if notify_chat:
+                try:
+                    await client.send_message(
+                        notify_chat,
+                        f"🎉 <b>ការស្នើសុំសិទ្ធិត្រូវបានអនុម័ត!</b>\n\n"
+                        f"👤 <b>{target_name}</b> ត្រូវបានម្ចាស់ហាងអនុញ្ញាតឱ្យមើលរបាយការណ៍ហិរញ្ញវត្ថុក្នុង Group នេះបានហើយ។\n\n"
+                        f"👉 លោកអ្នកអាចចុច <code>/today</code> ឬប៊ូតុងខាងក្រោមដើម្បីពិនិត្យការលក់:",
+                        parse_mode="html",
+                        buttons=get_menu_buttons()
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not announce approval in group: {e}")
+            return
+
+        elif data.startswith(b"deny_"):
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មានតែម្ចាស់អាជីវកម្មប៉ុណ្ណោះដែលអាចបដិសេធបាន!", alert=True)
+                return
+
+            target_id = int(data.decode().split("_")[1])
+            req_info = pending_requests.get(target_id, {})
+            target_name = req_info.get("full_name") or f"User {target_id}"
+
+            denied_text = (
+                f"❌ <b>បានបដិសេធសំណើរបស់</b> <b>{target_name}</b> (<code>{target_id}</code>)។\n\n"
+                f"<i>អ្នកប្រើប្រាស់នេះមិនត្រូវបានអនុញ្ញាតឱ្យមើលរបាយការណ៍ឡើយ។</i>"
+            )
+            await event.edit(denied_text, parse_mode="html")
+            await event.answer("❌ បានបដិសេធសំណើ!")
+            return
+
+        # Check permission for report inline buttons
         if not check_permission(sender_id, event.chat_id):
+            if sender_id is not None:
+                sender_ent = await event.get_sender()
+                await notify_owner_of_access_request(
+                    client=client,
+                    user_id=sender_id,
+                    chat_id=event.chat_id,
+                    user_entity=sender_ent,
+                    source="button"
+                )
             await event.answer(
-                "⛔ អ្នកមិនមានសិទ្ធិមើលរបាយការណ៍ហិរញ្ញវត្ថុនេះទេ! សូមទាក់ទងម្ចាស់ហាង (Admin)។",
+                "⛔ អ្នកមិនទាន់មានសិទ្ធិមើលរបាយការណ៍ហិរញ្ញវត្ថុនេះទេ!\n"
+                "📩 ប្រព័ន្ធបានបញ្ជូនឈ្មោះ និង ID របស់អ្នកទៅម្ចាស់ហាងដើម្បីសុំការអនុញ្ញាតហើយ។",
                 alert=True
             )
             return
-
-        data = event.data
 
         if data == b"btn_today":
             summary = db.get_summary_by_date(get_cambodia_today_str())
@@ -315,13 +488,33 @@ def setup_handlers(client: TelegramClient):
         )
         if any(cmd.startswith(p) for p in report_cmd_prefixes):
             if not check_permission(event.sender_id, chat_id):
-                await event.reply(
-                    "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Access Denied)</b>\n\n"
-                    "🔒 របាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូល ត្រូវបានការពារដោយសុវត្ថិភាពខ្ពស់។\n"
-                    "មានតែម្ចាស់អាជីវកម្ម ឬបុគ្គលិកដែលមានការអនុញ្ញាតទើបអាចមើលបាន។\n\n"
-                    f"💡 <i>សូមផ្ញើ Telegram User ID របស់អ្នក <code>{event.sender_id}</code> ទៅកាន់ Admin ដើម្បីស្នើសុំសិទ្ធិ។</i>",
-                    parse_mode="html"
-                )
+                if event.sender_id is not None:
+                    sender = await event.get_sender()
+                    await notify_owner_of_access_request(
+                        client=client,
+                        user_id=event.sender_id,
+                        chat_id=chat_id,
+                        user_entity=sender,
+                        source="command"
+                    )
+                    first = getattr(sender, "first_name", "") or ""
+                    last = getattr(sender, "last_name", "") or ""
+                    fname = f"{first} {last}".strip() or "User"
+                    await event.reply(
+                        "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Access Denied)</b>\n\n"
+                        "🔒 របាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូល ត្រូវបានការពារដោយសុវត្ថិភាពខ្ពស់។\n\n"
+                        f"👤 ឈ្មោះ: <b>{fname}</b>\n"
+                        f"🔢 Telegram User ID: <code>{event.sender_id}</code>\n\n"
+                        "📩 <b>ប្រព័ន្ធបានផ្ញើឈ្មោះ និង User ID របស់អ្នកទៅកាន់ម្ចាស់ហាង (@Pirothz) រួចរាល់ហើយ!</b>\n"
+                        "💡 <i>សូមរង់ចាំម្ចាស់ហាងចុចយល់ព្រម (Approve) មួយភ្លែត។</i>",
+                        parse_mode="html"
+                    )
+                else:
+                    await event.reply(
+                        "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Access Denied)</b>\n\n"
+                        "⚠️ <i>លោកអ្នកកំពុងបើកមុខងារ 'Send anonymously' (ផ្ញើអនាមិក)។ ប្រសិនបើលោកអ្នកចង់ស្នើសុំសិទ្ធិ សូមបិទមុខងារ Send anonymously ជាមុនសិន ដើម្បីឱ្យប្រព័ន្ធអាចសម្គាល់ User ID របស់អ្នកបាន។</i>",
+                        parse_mode="html"
+                    )
                 return
 
         # 6. Execute Allowed Report Commands
