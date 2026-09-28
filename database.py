@@ -632,5 +632,17 @@ class Database:
         finally:
             conn.close()
 
+    def get_transaction_count(self) -> int:
+        """Returns total count of transactions stored in database."""
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM transactions")
+            row = cursor.fetchone()
+            return row[0] if row else 0
+        finally:
+            conn.close()
+
+
 
 

@@ -627,6 +627,26 @@ def setup_handlers(client: TelegramClient):
             )
             return
 
+        # System version & status command (Publicly accessible to check version)
+        if cmd in ("/version", ".version", "/status", ".status"):
+            uptime_str = get_cambodia_now().strftime("%Y-%m-%d %H:%M:%S")
+            total_tx = db.get_transaction_count()
+            users_count = len(db.list_authorized_users())
+            status_text = (
+                f"🤖 <b>ប្រព័ន្ធ KHQR Daily Report Bot</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🏷️ <b>Version:</b> <code>v{config.BOT_VERSION}</code> (Enterprise Edition)\n"
+                f"👑 <b>Bot Owner:</b> <code>AVATA 🇸🇸 (ID: 7299682335)</code>\n"
+                f"🛡️ <b>ប្រព័ន្ធសុវត្ថិភាព:</b> <code>Strict Bot Owner RBAC (Active)</code>\n"
+                f"📊 <b>ប្រតិបត្តិការសរុបក្នុង DB:</b> <code>{total_tx} លើក</code>\n"
+                f"👥 <b>បុគ្គលិកមានសិទ្ធិ:</b> <code>{users_count} នាក់</code>\n"
+                f"⏰ <b>ម៉ោងបច្ចុប្បន្ន:</b> <code>{uptime_str}</code>\n\n"
+                f"✅ <i>ប្រព័ន្ធកំពុងដំណើរការកំណែចុងក្រោយបំផុតដោយជោគជ័យ។</i>"
+            )
+            await event.reply(status_text, parse_mode="html")
+            return
+
+
         # 2. RBAC Management: Add staff / authorize user (Admin only)
         if cmd in ("/adduser", ".adduser"):
             if not is_admin(event.sender_id):
@@ -1047,6 +1067,27 @@ async def start_bot():
         print("🔄 កំពុងទាញយកសារចាស់ៗក្នុង Group មកពិនិត្យដោយស្វ័យប្រវត្ត (Auto History Sync)...")
         from sync_history import sync_previous_messages
         asyncio.create_task(sync_previous_messages(client, config.MONITOR_CHAT_ID, limit=config.SYNC_LIMIT))
+
+    # Auto notify Bot Owner when updated/started
+    try:
+        if config.ADMIN_USER_ID:
+            uptime_str = get_cambodia_now().strftime("%Y-%m-%d %H:%M:%S")
+            total_tx = db.get_transaction_count()
+            users_count = len(db.list_authorized_users())
+            startup_msg = (
+                f"🚀 <b>ប្រព័ន្ធ Bot បាន Update ទៅកាន់ Version ថ្មីជោគជ័យ!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🏷️ <b>Version:</b> <code>v{config.BOT_VERSION}</code> (Enterprise Edition)\n"
+                f"⏰ <b>ម៉ោងដំណើរការ:</b> <code>{uptime_str}</code>\n"
+                f"🛡️ <b>ប្រព័ន្ធសុវត្ថិភាព:</b> <code>Strict Bot Owner RBAC (Active)</code>\n"
+                f"📊 <b>ទិន្នន័យក្នុង DB:</b> <code>{total_tx} លើក</code>\n"
+                f"👥 <b>ចំនួនបុគ្គលិកមានសិទ្ធិ:</b> <code>{users_count} នាក់</code>\n\n"
+                f"✅ <i>រាល់មុខងារថ្មីៗ និងការការពារសុវត្ថិភាពត្រូវបាន Update ពេញលេញ។</i>"
+            )
+            await client.send_message(config.ADMIN_USER_ID, startup_msg, parse_mode="html")
+            logger.info("Sent startup version notification to Bot Owner.")
+    except Exception as e:
+        logger.debug(f"Could not send startup notification: {e}")
 
     # Start Cloud Health-check HTTP server if running on Render / Koyeb / Heroku (PORT env var present)
     await start_health_check_server()
