@@ -26,6 +26,7 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding='utf-8')
 
 from telethon import TelegramClient, events, Button
+from telethon.errors import FloodWaitError, MessageNotModifiedError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -94,6 +95,51 @@ async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[An
 pending_requests: Dict[int, dict] = {}
 last_request_time: Dict[int, float] = {}
 last_callback_time: Dict[str, float] = {}
+last_command_time: Dict[str, float] = {}
+
+
+async def safe_edit_or_respond(event, text: str, buttons=None):
+    """
+    Safely updates the existing message in-place to prevent flooding the group with new messages.
+    Falls back to respond if editing is not possible, and gracefully ignores MessageNotModified.
+    Safely catches Telegram FloodWait.
+    """
+    try:
+        if hasattr(event, 'edit'):
+            try:
+                await event.edit(text, parse_mode="html", buttons=buttons)
+                return
+            except MessageNotModifiedError:
+                await event.answer("👌 ទិន្នន័យនេះកំពុងបង្ហាញស្រាប់ហើយ", alert=False)
+                return
+            except Exception as e:
+                err_str = str(e).lower()
+                if "not modified" in err_str:
+                    await event.answer("👌 ទិន្នន័យនេះកំពុងបង្ហាញស្រាប់ហើយ", alert=False)
+                    return
+                logger.debug(f"event.edit failed, falling back to respond: {e}")
+
+        await event.respond(text, parse_mode="html", buttons=buttons)
+    except FloodWaitError as e:
+        logger.warning(f"Telegram FloodWait triggered! Wait required: {e.seconds}s")
+        if hasattr(event, 'answer'):
+            await event.answer(f"⏳ សូមរង់ចាំ {e.seconds} វិនាទី...", alert=True)
+    except Exception as e:
+        logger.error(f"Error in safe_edit_or_respond: {e}")
+
+
+async def safe_reply(event, text: str, buttons=None):
+    """
+    Safely replies to a message, catching Telegram FloodWait and transient errors.
+    """
+    try:
+        return await event.reply(text, parse_mode="html", buttons=buttons)
+    except FloodWaitError as e:
+        logger.warning(f"Telegram FloodWait on reply: {e.seconds}s")
+        await asyncio.sleep(min(e.seconds, 5))
+    except Exception as e:
+        logger.error(f"Error in safe_reply: {e}")
+
 
 
 def check_permission(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
@@ -323,41 +369,35 @@ def setup_handlers(client: TelegramClient):
             summary = db.get_summary_by_date(today_str)
             comparison = db.get_daily_comparison(today_str)
             msg = format_daily_summary(summary, comparison=comparison, title_prefix="ថ្ងៃនេះ (Today)")
-            await event.respond(msg, parse_mode="html", buttons=get_menu_buttons())
-            await event.answer()
+            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
 
         elif data == b"btn_yesterday":
             yesterday = (get_cambodia_now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
             summary = db.get_summary_by_date(yesterday)
             msg = format_daily_summary(summary, title_prefix="ម្សិលមិញ (Yesterday)")
-            await event.respond(msg, parse_mode="html", buttons=get_menu_buttons())
-            await event.answer()
+            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
 
         elif data == b"btn_week":
             summary = db.get_summary_by_days(7)
             msg = format_range_summary(summary, title_prefix="៧ថ្ងៃចុងក្រោយ")
-            await event.respond(msg, parse_mode="html", buttons=get_menu_buttons())
-            await event.answer()
+            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
 
         elif data == b"btn_month":
             current_month = get_cambodia_now().strftime("%Y-%m")
             summary = db.get_summary_by_month(current_month)
             msg = format_monthly_summary(summary)
-            await event.respond(msg, parse_mode="html", buttons=get_menu_buttons())
-            await event.answer()
+            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
 
         elif data == b"btn_year":
             current_year = get_cambodia_now().strftime("%Y")
             summary = db.get_summary_by_year(current_year)
             msg = format_yearly_summary(summary)
-            await event.respond(msg, parse_mode="html", buttons=get_menu_buttons())
-            await event.answer()
+            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
 
         elif data == b"btn_history":
             txns = db.get_recent_transactions(limit=5)
             msg = format_recent_transactions(txns, limit=5)
-            await event.respond(msg, parse_mode="html", buttons=get_menu_buttons())
-            await event.answer()
+            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
 
     # 2. Listener for new messages (monitoring KHQR payments & text commands)
     @client.on(events.NewMessage)
@@ -374,6 +414,24 @@ def setup_handlers(client: TelegramClient):
             # Still allow commands in private chat
             if not event.is_private and not text.startswith(("/", ".")):
                 return
+
+        # Safety Check: Inspect sender identity
+        sender = await event.get_sender()
+        is_sender_bot = bool(sender and getattr(sender, 'bot', False))
+
+        # SAFETY 1: NEVER process or respond to commands sent by other bots!
+        # This completely guarantees 0% chance of bot-to-bot loops or interference with bank bots.
+        if is_sender_bot and text.startswith(("/", ".")):
+            return
+
+        # SAFETY 2: Anti-Flood Rate limit commands per user (minimum 2.0s cooldown)
+        if text.startswith(("/", ".")) and event.sender_id is not None:
+            user_key = f"cmd_{event.sender_id}"
+            now_ts = time.time()
+            if user_key in last_command_time and (now_ts - last_command_time[user_key]) < 2.0:
+                logger.warning(f"Command throttled for user {event.sender_id} to prevent spam")
+                return
+            last_command_time[user_key] = now_ts
 
         # Handle Commands
         text_stripped = text.strip()
@@ -538,34 +596,34 @@ def setup_handlers(client: TelegramClient):
             summary = db.get_summary_by_date(today_str)
             comparison = db.get_daily_comparison(today_str)
             msg = format_daily_summary(summary, comparison=comparison, title_prefix="ថ្ងៃនេះ (Today)")
-            await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
+            await safe_reply(event, msg, buttons=get_menu_buttons())
             return
 
         elif cmd in ("/yesterday", ".yesterday", "ម្សិលមិញ"):
             yesterday = (get_cambodia_now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
             summary = db.get_summary_by_date(yesterday)
             msg = format_daily_summary(summary, title_prefix="ម្សិលមិញ (Yesterday)")
-            await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
+            await safe_reply(event, msg, buttons=get_menu_buttons())
             return
 
         elif cmd in ("/week", ".week", "/weekly", ".weekly", "សប្តាហ៍នេះ"):
             summary = db.get_summary_by_days(7)
             msg = format_range_summary(summary, title_prefix="៧ថ្ងៃចុងក្រោយ")
-            await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
+            await safe_reply(event, msg, buttons=get_menu_buttons())
             return
 
         elif cmd in ("/month", ".month", "បូកសរុបខែនេះ"):
             current_month = get_cambodia_now().strftime("%Y-%m")
             summary = db.get_summary_by_month(current_month)
             msg = format_monthly_summary(summary)
-            await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
+            await safe_reply(event, msg, buttons=get_menu_buttons())
             return
 
         elif cmd in ("/year", ".year", "/yearly", ".yearly", "ប្រចាំឆ្នាំ", "បូកសរុបប្រចាំឆ្នាំ"):
             current_year = get_cambodia_now().strftime("%Y")
             summary = db.get_summary_by_year(current_year)
             msg = format_yearly_summary(summary)
-            await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
+            await safe_reply(event, msg, buttons=get_menu_buttons())
             return
 
         elif cmd in ("/history", ".history", "/recent", ".recent", "ប្រវត្តិ", "ប្រវត្តិចុងក្រោយ"):
@@ -575,7 +633,7 @@ def setup_handlers(client: TelegramClient):
                 limit = min(int(parts[1]), 50)
             txns = db.get_recent_transactions(limit=limit)
             msg = format_recent_transactions(txns, limit=limit)
-            await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
+            await safe_reply(event, msg, buttons=get_menu_buttons())
             return
 
         elif cmd.startswith(("/report", ".report")):
@@ -586,18 +644,18 @@ def setup_handlers(client: TelegramClient):
                     datetime.datetime.strptime(target_date, "%Y-%m-%d")
                     summary = db.get_summary_by_date(target_date)
                     msg = format_daily_summary(summary, title_prefix=f"ថ្ងៃ {target_date}")
-                    await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
+                    await safe_reply(event, msg, buttons=get_menu_buttons())
                 except ValueError:
-                    await event.reply(
-                        "⚠️ ទម្រង់កាលបរិច្ឆេទមិនត្រឹមត្រូវ! សូមប្រើ: <code>/report YYYY-MM-DD</code>\nឧទាហរណ៍: <code>/report 2026-09-28</code>",
-                        parse_mode="html"
+                    await safe_reply(
+                        event,
+                        "⚠️ ទម្រង់កាលបរិច្ឆេទមិនត្រឹមត្រូវ! សូមប្រើ: <code>/report YYYY-MM-DD</code>\nឧទាហរណ៍: <code>/report 2026-09-28</code>"
                     )
             else:
                 today_str = get_cambodia_today_str()
                 summary = db.get_summary_by_date(today_str)
                 comparison = db.get_daily_comparison(today_str)
                 msg = format_daily_summary(summary, comparison=comparison, title_prefix="ថ្ងៃនេះ (Today)")
-                await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
+                await safe_reply(event, msg, buttons=get_menu_buttons())
             return
 
         elif cmd.startswith(("/sync", ".sync", "/backfill")):
@@ -607,16 +665,16 @@ def setup_handlers(client: TelegramClient):
                 limit = int(parts[1])
 
             target_chat = config.MONITOR_CHAT_ID or chat_id
-            await event.reply(f"🔄 កំពុងទាញយក និងពិនិត្យសារចាស់ៗចំនួន <b>{limit}</b> សារពី Group...", parse_mode="html")
+            await safe_reply(event, f"🔄 កំពុងទាញយក និងពិនិត្យសារចាស់ៗចំនួន <b>{limit}</b> សារពី Group...")
             
             from sync_history import sync_previous_messages
             res = await sync_previous_messages(client, target_chat, limit=limit)
             if res and res.get("bot_restricted"):
-                await event.reply(
+                await safe_reply(
+                    event,
                     "⚠️ <b>គណនី Bot មិនមានសិទ្ធិអានសារចាស់ៗក្នុង Group ឡើយ (Telegram Bot Restriction):</b>\n\n"
                     "Telegram មិនអនុញ្ញាតឱ្យ Bot ប្រើប្រាស់មុខងារ GetHistoryRequest បានឡើយ។\n"
                     "💡 ប៉ុន្តែរាល់ការទូទាត់ថ្មីៗដែលផ្ញើចូល Group នឹងត្រូវបានកត់ត្រាដោយស្វ័យប្រវត្តក្នុងពេលជាក់ស្តែង (Real-time)!",
-                    parse_mode="html",
                     buttons=get_menu_buttons()
                 )
             elif res:
@@ -629,9 +687,9 @@ def setup_handlers(client: TelegramClient):
                     f"• ទឹកប្រាក់ថ្មីដែលទើបកត់ត្រា: <b>${res['usd_total']:,.2f}</b> | <b>{int(res['khr_total']):,} ៛</b>\n\n"
                     "💡 <i>លោកអ្នកអាចវាយ <code>/today</code> ឬ <code>/history</code> ដើម្បីមើលរបាយការណ៍បច្ចុប្បន្នភាព!</i>"
                 )
-                await event.reply(reply_text, parse_mode="html", buttons=get_menu_buttons())
+                await safe_reply(event, reply_text, buttons=get_menu_buttons())
             else:
-                await event.reply("⚠️ មិនអាចទាញយកសារចាស់ៗបានទេ។ សូមពិនិត្យមើលសិទ្ធិរបស់ Bot ក្នុង Group។", parse_mode="html", buttons=get_menu_buttons())
+                await safe_reply(event, "⚠️ មិនអាចទាញយកសារចាស់ៗបានទេ។ សូមពិនិត្យមើលសិទ្ធិរបស់ Bot ក្នុង Group។", buttons=get_menu_buttons())
             return
 
         elif cmd in ("/menu", ".menu", "/start", ".start", "/help", ".help"):
@@ -661,7 +719,7 @@ def setup_handlers(client: TelegramClient):
                     "• <code>/sync [ចំនួន]</code> — ទាញយកសារចាស់ៗពីមុនមកបូកបញ្ចូល\n\n"
                 )
             help_text += "👇 <b>សូមចុចប៊ូតុងខាងក្រោមដើម្បីមើលរបាយការណ៍:</b>"
-            await event.reply(help_text, parse_mode="html", buttons=get_menu_buttons())
+            await safe_reply(event, help_text, buttons=get_menu_buttons())
             return
 
         # 3. Check if the incoming message is a KHQR Payment Notification
