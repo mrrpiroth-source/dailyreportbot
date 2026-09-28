@@ -380,10 +380,11 @@
           👇 <b>ចុចប៊ូតុងបញ្ជាមើលរបាយការណ៍:</b>
           <div class="inline-keyboard">
             <div class="btn-inline" onclick="triggerReport('today')">📊 ថ្ងៃនេះ (Today)</div>
-            <div class="btn-inline" onclick="triggerReport('yesterday')">📅 ម្សិលមិញ</div>
-            <div class="btn-inline" onclick="triggerReport('week')">🗓 ៧ថ្ងៃចុងក្រោយ</div>
+            <div class="btn-inline" onclick="triggerReport('yesterday')">📅 ម្សិលមិញ (Yesterday)</div>
+            <div class="btn-inline" onclick="triggerReport('week')">🗓 ៧ថ្ងៃចុងក្រោយ (Week)</div>
             <div class="btn-inline" onclick="triggerReport('month')">📈 ប្រចាំខែ (Month)</div>
-            <div class="btn-inline btn-full" onclick="triggerReport('recent')">📋 ប្រតិបត្តិការ ៥ ចុងក្រោយ</div>
+            <div class="btn-inline" onclick="triggerReport('year')">📆 ប្រចាំឆ្នាំ</div>
+            <div class="btn-inline" onclick="closeReport(this)">❌ Exit</div>
           </div>
           <span class="msg-time">08:00</span>
         </div>
@@ -544,6 +545,16 @@
       }, 350);
     }
 
+    function closeReport(btn) {
+      const msgWrap = btn.closest('.msg-wrap');
+      if (msgWrap) {
+        msgWrap.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+        msgWrap.style.opacity = '0';
+        msgWrap.style.transform = 'scale(0.95)';
+        setTimeout(() => msgWrap.remove(), 300);
+      }
+    }
+
     function triggerReport(type) {
       const chat = document.getElementById('chatBox');
       const time = getTimeStr();
@@ -620,11 +631,12 @@
             ━━━━━━━━━━━━━━━━━━━━━━━━━<br>
             ✨ <i>ទិន្នន័យត្រូវបានកត់ត្រា និងបូកសរុបស្វ័យប្រវត្ត</i>
             <div class="inline-keyboard">
-              <div class="btn-inline" onclick="triggerReport('today')">📊 ថ្ងៃនេះ</div>
-              <div class="btn-inline" onclick="triggerReport('yesterday')">📅 ម្សិលមិញ</div>
-              <div class="btn-inline" onclick="triggerReport('month')">📈 ប្រចាំខែ</div>
+              <div class="btn-inline" onclick="triggerReport('today')">📊 ថ្ងៃនេះ (Today)</div>
+              <div class="btn-inline" onclick="triggerReport('yesterday')">📅 ម្សិលមិញ (Yesterday)</div>
+              <div class="btn-inline" onclick="triggerReport('week')">🗓 ៧ថ្ងៃចុងក្រោយ (Week)</div>
+              <div class="btn-inline" onclick="triggerReport('month')">📈 ប្រចាំខែ (Month)</div>
               <div class="btn-inline" onclick="triggerReport('year')">📆 ប្រចាំឆ្នាំ</div>
-              <div class="btn-inline btn-full" onclick="triggerReport('recent')">🧾 ប្រវត្តិចុងក្រោយ (History)</div>
+              <div class="btn-inline" onclick="closeReport(this)">❌ Exit</div>
             </div>
             <span class="msg-time">${time}</span>
           </div>

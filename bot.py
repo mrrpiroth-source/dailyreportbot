@@ -66,8 +66,8 @@ def get_menu_buttons():
             Button.inline("📈 ប្រចាំខែ (Month)", data=b"btn_month"),
         ],
         [
-            Button.inline("📆 របាយការណ៍ប្រចាំឆ្នាំ (Year)", data=b"btn_year"),
-            Button.inline("🧾 ប្រវត្តិចុងក្រោយ (History)", data=b"btn_history"),
+            Button.inline("📆 ប្រចាំឆ្នាំ", data=b"btn_year"),
+            Button.inline("❌ Exit", data=b"btn_exit"),
         ]
     ]
 
@@ -398,6 +398,13 @@ def setup_handlers(client: TelegramClient):
             txns = db.get_recent_transactions(limit=5)
             msg = format_recent_transactions(txns, limit=5)
             await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
+
+        elif data == b"btn_exit":
+            try:
+                await event.answer("🚪 បានបិទរបាយការណ៍ (Exit)")
+                await event.delete()
+            except Exception:
+                await event.edit("🔒 <i>របាយការណ៍ត្រូវបានបិទ (Report Closed)</i>\n👉 <i>ចុច <code>/today</code> ដើម្បីបើកឡើងវិញ</i>", parse_mode="html", buttons=None)
 
     # 2. Listener for new messages (monitoring KHQR payments & text commands)
     @client.on(events.NewMessage)
