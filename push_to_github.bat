@@ -8,9 +8,19 @@ echo ======================================================================
 echo.
 echo  Target: https://github.com/mrrpiroth-source/dailyreportbot
 echo.
-echo  Starting git push...
-echo.
+echo  [1/3] Staging all files...
+git add -A
 
+echo  [2/3] Checking for changes to commit...
+git diff-index --quiet HEAD --
+if %errorlevel% neq 0 (
+    echo  Creating auto-commit...
+    git commit -m "Auto-Update: Release v2.5.0 - Security hardening, instant health checks & 1-click controls"
+) else (
+    echo  No uncommitted changes, proceeding to push...
+)
+
+echo  [3/3] Pushing to GitHub (origin/main)...
 git push -u origin main
 
 echo.

@@ -185,10 +185,10 @@ def is_admin(sender_id: Optional[Any], chat_id: Optional[int] = None) -> bool:
     if s_id == config.MASTER_BOT_OWNER_ID:
         return True
     # 2. Configured admin user IDs from environment
-    if config.ADMIN_USER_IDS and sender_id in config.ADMIN_USER_IDS:
+    if config.ADMIN_USER_IDS and s_id in config.ADMIN_USER_IDS:
         return True
     # 3. Database stored owner/admin role
-    role = db.get_user_role(sender_id, chat_id)
+    role = db.get_user_role(s_id, chat_id)
     if role in ("owner", "admin"):
         return True
     return False
@@ -453,12 +453,21 @@ def build_group_management_panel(group_query: str):
     return "\n".join(lines), num_buttons
 
 
+def restart_process():
+    """Performs clean process restart, replacing the current process or exiting cleanly."""
+    logger.info("Executing clean process restart...")
+    try:
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as e:
+        logger.warning(f"os.execv failed ({e}), falling back to os._exit(0)")
+        os._exit(0)
+
+
 def setup_handlers(client: TelegramClient):
     """Sets up event handlers for incoming messages, commands, and button clicks."""
 
     # 1. Callback query handler for inline button taps
-    @client.on(events.CallbackQuery)
-    async def callback_handler(event: events.CallbackQuery.Event):
+    async def _process_callback(event: events.CallbackQuery.Event):
         sender_id = event.sender_id
         data = event.data
 
@@ -698,6 +707,65 @@ def setup_handlers(client: TelegramClient):
                 await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
                 return
 
+            update_text = (
+                "🚀 <b>ផ្ទាំងគ្រប់គ្រង Version & Update (Auto-Deploy Control)</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🏷️ <b>Version បច្ចុប្បន្ន:</b> <code>v{config.BOT_VERSION}</code> (Ultra-Stable)\n"
+                f"👑 <b>ម្ចាស់ Bot:</b> <b>AVATA 🇸🇸</b>\n\n"
+                "👉 <i>សូមជ្រើសរើសជម្រើសខាងក្រោម៖</i>\n\n"
+                "• <b>⚡ Auto Pull & Restart:</b> ទាញយកកូដថ្មីពី GitHub និង Restart ស្វ័យប្រវត្តភ្លាមៗ\n"
+                "• <b>☁️ Render Auto-Deploy:</b> បញ្ជាឱ្យប្រព័ន្ធ Render Build & Deploy ជំនាន់ថ្មី\n"
+                "• <b>🔄 Quick Restart:</b> Restart Bot ភ្លាមៗដើម្បី Refresh ប្រព័ន្ធ\n"
+            )
+            b = [
+                [Button.inline("⚡ Auto Pull & Restart (Git)", data=b"admin_do_git_update")],
+                [Button.inline("☁️ Render Auto-Deploy", data=b"admin_do_render_deploy")],
+                [Button.inline("🔄 Quick Restart ភ្លាមៗ", data=b"admin_do_restart")],
+                [Button.inline("🔙 ត្រឡប់ទៅ Admin Panel", data=b"admin_panel")]
+            ]
+            await event.edit(update_text, parse_mode="html", buttons=b)
+            return
+
+        elif data == b"admin_do_git_update":
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+
+            await event.answer("⏳ កំពុងទាញយក Version ថ្មីពី GitHub...", alert=False)
+            await event.edit(
+                "⏳ <b>កំពុងដំណើរការទាញយកកូដ Version ថ្មីពី GitHub (Git Pull)...</b>\n\n"
+                "<i>សូមរង់ចាំបន្តិច...</i>",
+                parse_mode="html"
+            )
+
+            pull_output = ""
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "git", "pull", "origin", "main",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await proc.communicate()
+                pull_output = (stdout.decode(errors="ignore") + stderr.decode(errors="ignore")).strip()
+            except Exception as e:
+                pull_output = f"Git error: {e}"
+
+            done_msg = (
+                "✅ <b>បានទាញយក Version ថ្មីពី GitHub រួចរាល់!</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📋 <b>លទ្ធផល Git Pull:</b>\n<code>{pull_output[:300] or 'Already up to date.'}</code>\n\n"
+                "🔄 <b>ប្រព័ន្ធកំពុង Restart ស្វ័យប្រវត្តក្នុងរយៈពេល ២ វិនាទី...</b>\n"
+                "💡 <i>(Bot នឹងផ្ញើសារ Alert មកកាន់បងវិញនៅពេលដំណើរការឡើងវិញរួចរាល់)</i>"
+            )
+            await event.edit(done_msg, parse_mode="html")
+            asyncio.get_event_loop().call_later(2.0, restart_process)
+            return
+
+        elif data == b"admin_do_render_deploy":
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+
             hook_url = getattr(config, "RENDER_DEPLOY_HOOK", "")
             if hook_url and hook_url.startswith("http"):
                 try:
@@ -706,35 +774,33 @@ def setup_handlers(client: TelegramClient):
                     with urllib.request.urlopen(req, timeout=10) as resp:
                         logger.info(f"Triggered Render deploy hook: status {resp.status}")
 
-                    update_text = (
-                        "🚀 <b>បានបញ្ជា Render ឱ្យ Update Bot ជោគជ័យ!</b>\n"
+                    deploy_text = (
+                        "🚀 <b>បានបញ្ជា Render ឱ្យ Re-deploy ជោគជ័យ!</b>\n"
                         "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                        "📡 ប្រព័ន្ធ Render កំពុងទាញយកកូដចុងក្រោយបំផុតមក Deploy...\n"
-                        "⏳ សូមរង់ចាំប្រហែល <b>1 ទៅ 2 នាទី</b>។\n\n"
-                        "✅ <i>នៅពេល Update ចប់ Bot នឹង Restart និងផ្ញើសារ Alert មកកាន់បងដោយស្វ័យប្រវត្ត!</i>"
+                        "📡 ប្រព័ន្ធ Render កំពុង Build និងទាញយក Version ថ្មីមកដំណើរការ...\n"
+                        "⏳ រយៈពេល Build ជាមធ្យម: <b>1 ទៅ 2 នាទី</b>\n\n"
+                        "✅ <i>នៅពេល Build ចប់ Bot ថ្មីនឹងបើកដំណើរការ និងផ្ញើសារមកកាន់បងដោយស្វ័យប្រវត្ត!</i>"
                     )
                     b = [[Button.inline("🔙 ត្រឡប់ទៅ Admin Panel", data=b"admin_panel")]]
-                    await event.edit(update_text, parse_mode="html", buttons=b)
-                    await event.answer("🚀 កំពុងដំណើរការ Update Bot...")
+                    await event.edit(deploy_text, parse_mode="html", buttons=b)
+                    await event.answer("🚀 បានបញ្ជា Render Deploy ជោគជ័យ!")
                     return
                 except Exception as e:
-                    logger.error(f"Deploy hook trigger failed: {e}")
-
-            # Fallback: Confirm process restart
-            restart_text = (
-                "🔄 <b>ការ Restart & Update ប្រព័ន្ធ Bot</b>\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "តើលោកអ្នក (Avata) ចង់ Restart ប្រព័ន្ធ Bot ឱ្យទាញយកកំណែថ្មីឡើងវិញឥឡូវនេះមែនទេ?\n\n"
-                "💡 <i>(នៅលើ Render ប្រព័ន្ធនឹង Restart និងទាញយកកំណែចុងក្រោយបំផុតមកដំណើរការឡើងវិញភ្លាមៗ)</i>"
-            )
-            b = [
-                [
-                    Button.inline("⚡ បញ្ជាក់ការ Restart ឥឡូវនេះ", data=b"admin_do_restart"),
-                    Button.inline("🔙 ថយក្រោយ", data=b"admin_panel")
+                    logger.error(f"Render deploy hook failed: {e}")
+                    await event.answer(f"⚠️ មិនអាចបញ្ជា Deploy បាន: {e}", alert=True)
+                    return
+            else:
+                no_hook_text = (
+                    "⚠️ <b>មិនទាន់បានកំណត់ RENDER_DEPLOY_HOOK ក្នុង .env នៅឡើយទេ</b>\n\n"
+                    "💡 លោកអ្នកអាចប្រើប៊ូតុង <b>⚡ Auto Pull & Restart</b> ឬ <b>🔄 Quick Restart</b> ជំនួសវិញបាន។"
+                )
+                b = [
+                    [Button.inline("⚡ Auto Pull & Restart", data=b"admin_do_git_update")],
+                    [Button.inline("🔄 Quick Restart", data=b"admin_do_restart")],
+                    [Button.inline("🔙 ត្រឡប់ទៅ Admin Panel", data=b"admin_panel")]
                 ]
-            ]
-            await event.edit(restart_text, parse_mode="html", buttons=b)
-            return
+                await event.edit(no_hook_text, parse_mode="html", buttons=b)
+                return
 
         elif data == b"admin_do_restart":
             if not is_admin(sender_id, event.chat_id):
@@ -743,11 +809,11 @@ def setup_handlers(client: TelegramClient):
 
             await event.answer("🔄 កំពុង Restart Bot...", alert=True)
             await event.edit(
-                "🔄 <b>ប្រព័ន្ធកំពុងដំណើរការ Restart...</b>\n\n"
-                "⏳ សូមរង់ចាំប្រហែល ៣០ វិនាទី ទៅ ១ នាទី។ Bot នឹងផ្ញើសារ Alert មកវិញនៅពេលដំណើរការរួចរាល់!",
+                "🔄 <b>ប្រព័ន្ធកំពុងដំណើរការ Restart ស្វ័យប្រវត្ត...</b>\n\n"
+                "⏳ សូមរង់ចាំប្រហែល ១៥ ទៅ ៣០ វិនាទី។ Bot នឹងផ្ញើសារ Alert មកវិញនៅពេលដំណើរការរួចរាល់!",
                 parse_mode="html"
             )
-            asyncio.get_event_loop().call_later(1.0, lambda: os._exit(0))
+            asyncio.get_event_loop().call_later(1.0, restart_process)
             return
 
         elif data == b"admin_status":
@@ -892,9 +958,19 @@ def setup_handlers(client: TelegramClient):
             except Exception:
                 await event.edit("🔒 <i>របាយការណ៍ត្រូវបានបិទ (Report Closed)</i>\n👉 <i>ចុច <code>/today</code> ដើម្បីបើកឡើងវិញ</i>", parse_mode="html", buttons=None)
 
+    @client.on(events.CallbackQuery)
+    async def callback_handler(event: events.CallbackQuery.Event):
+        try:
+            await _process_callback(event)
+        except Exception as e:
+            logger.error(f"Error handling callback query: {e}", exc_info=True)
+            try:
+                await event.answer("⚠️ មានបញ្ហាបច្ចេកទេសបន្តិចបន្តួច សូមសាកល្បងម្តងទៀត!", alert=True)
+            except Exception:
+                pass
+
     # 2. Listener for new messages (monitoring KHQR payments & text commands)
-    @client.on(events.NewMessage)
-    async def message_listener(event: events.NewMessage.Event):
+    async def _process_message(event: events.NewMessage.Event):
         text = event.raw_text
         if not text:
             return
@@ -933,26 +1009,39 @@ def setup_handlers(client: TelegramClient):
 
         # Handle Commands
         text_stripped = text.strip()
+        cmd = text_stripped.split()[0].lower() if text_stripped else ""
+        if "@" in cmd:
+            cmd = cmd.split("@")[0]
+
+        # Aliases for quick button clicks, persistent keyboard, or Khmer text shortcuts
+        if "របាយការណ៍" in text_stripped.lower() or text_stripped in ("📊 របាយការណ៍លក់", "📊 របាយការណ៍", "របាយការណ៍លក់", "📊 របាយការណ៍ថ្ងៃនេះ"):
+            cmd = "/today"
+        elif "ស្ថានភាព / version" in text_stripped.lower() or text_stripped in ("ℹ️ ស្ថានភាព / Version", "ℹ️ ស្ថានភាព / version", "ស្ថានភាព", "version"):
+            cmd = "/version"
+        elif "admin panel" in text_stripped.lower() or text_stripped in ("👑 Admin Panel", "👑 admin panel"):
+            cmd = "/admin"
+        elif "គ្រប់គ្រង group" in text_stripped.lower() or text_stripped in ("👥 គ្រប់គ្រង Group", "👥 គ្រប់គ្រង group"):
+            cmd = "/manage"
+
         # Determine admin privileges
         is_owner_user = is_admin(event.sender_id, chat_id)
 
         # Persistent Keyboard clicks & Quick Admin Triggers for Bot Owner Avata
         if is_owner_user:
-            if "គ្រប់គ្រង group" in text_stripped.lower() or text_stripped in ("👥 គ្រប់គ្រង Group", "👥 គ្រប់គ្រង group"):
-                text_panel, btns = build_group_selector()
+            if cmd in ("/manage", ".manage", "/group", ".group", "/members", ".members"):
+                parts = text_stripped.split(maxsplit=1)
+                group_query = parts[1].strip() if len(parts) > 1 and not parts[1].startswith("/") else ""
+                if not group_query:
+                    text_panel, btns = build_group_selector()
+                else:
+                    text_panel, btns = build_group_management_panel(group_query)
                 await event.reply(text_panel, parse_mode="html", buttons=btns)
                 return
 
-            if "admin panel" in text_stripped.lower() or cmd in ("/admin", ".admin", "/panel", ".panel"):
+            if cmd in ("/admin", ".admin", "/panel", ".panel"):
                 text_panel, btns = build_admin_panel()
                 await event.reply(text_panel, parse_mode="html", buttons=btns)
                 return
-
-        if "របាយការណ៍" in text_stripped.lower() or text_stripped in ("📊 របាយការណ៍លក់", "📊 របាយការណ៍"):
-            cmd = "/today"
-
-        if "ស្ថានភាព / version" in text_stripped.lower() or text_stripped in ("ℹ️ ស្ថានភាព / Version", "ℹ️ ស្ថានភាព / version"):
-            cmd = "/version"
 
         # 0. Start command in private chat: Welcome Bot Owner with full dashboard and buttons
         if cmd in ("/start", ".start") and event.is_private:
@@ -1349,9 +1438,21 @@ def setup_handlers(client: TelegramClient):
                 )
                 if config.ENABLE_INSTANT_ALERT:
                     alert_text = format_transaction_alert(parsed_data)
-                    await event.reply(alert_text, parse_mode="html")
+                    await event.reply(
+                        alert_text,
+                        parse_mode="html",
+                        buttons=[[Button.inline("📊 មើលរបាយការណ៍ថ្ងៃនេះ (Today)", data=b"btn_today")]]
+                    )
             else:
                 logger.warning(f"Ignored transaction: {message}")
+
+    @client.on(events.NewMessage)
+    async def message_listener(event: events.NewMessage.Event):
+        try:
+            await _process_message(event)
+        except Exception as e:
+            logger.error(f"Error handling incoming message: {e}", exc_info=True)
+
 
 
 def setup_scheduler(client: TelegramClient) -> AsyncIOScheduler:
@@ -1376,6 +1477,9 @@ def setup_scheduler(client: TelegramClient) -> AsyncIOScheduler:
 
 async def start_bot():
     """Main startup routine for the Telegram client."""
+    # 1. Start Cloud Health-check HTTP server immediately for Render/Koyeb so port binds in <0.1s
+    await start_health_check_server()
+
     if not config.API_ID or not config.API_HASH:
         print("\n" + "="*60)
         print("❌ កំហុស (ERROR): សូមបំពេញ TELEGRAM_API_ID និង TELEGRAM_API_HASH នៅក្នុងឯកសារ .env ជាមុនសិន!")
@@ -1467,9 +1571,6 @@ async def start_bot():
             logger.info("Sent startup version notification and Admin Panel to Bot Owner.")
     except Exception as e:
         logger.debug(f"Could not send startup notification: {e}")
-
-    # Start Cloud Health-check HTTP server if running on Render / Koyeb / Heroku (PORT env var present)
-    await start_health_check_server()
 
     # Run until disconnected
     await client.run_until_disconnected()
