@@ -98,7 +98,7 @@ last_callback_time: Dict[str, float] = {}
 last_command_time: Dict[str, float] = {}
 
 
-async def safe_edit_or_respond(event, text: str, buttons=None):
+async def safe_edit_or_respond(event, text: str, buttons=None, parse_mode: str = "html", **kwargs):
     """
     Safely updates the existing message in-place to prevent flooding the group with new messages.
     Falls back to respond if editing is not possible, and gracefully ignores MessageNotModified.
@@ -107,7 +107,7 @@ async def safe_edit_or_respond(event, text: str, buttons=None):
     try:
         if hasattr(event, 'edit'):
             try:
-                await event.edit(text, parse_mode="html", buttons=buttons)
+                await event.edit(text, parse_mode=parse_mode, buttons=buttons, **kwargs)
                 return
             except MessageNotModifiedError:
                 await event.answer("👌 ទិន្នន័យនេះកំពុងបង្ហាញស្រាប់ហើយ", alert=False)
@@ -119,7 +119,7 @@ async def safe_edit_or_respond(event, text: str, buttons=None):
                     return
                 logger.debug(f"event.edit failed, falling back to respond: {e}")
 
-        await event.respond(text, parse_mode="html", buttons=buttons)
+        await event.respond(text, parse_mode=parse_mode, buttons=buttons, **kwargs)
     except FloodWaitError as e:
         logger.warning(f"Telegram FloodWait triggered! Wait required: {e.seconds}s")
         if hasattr(event, 'answer'):
@@ -128,12 +128,12 @@ async def safe_edit_or_respond(event, text: str, buttons=None):
         logger.error(f"Error in safe_edit_or_respond: {e}")
 
 
-async def safe_reply(event, text: str, buttons=None):
+async def safe_reply(event, text: str, buttons=None, parse_mode: str = "html", **kwargs):
     """
     Safely replies to a message, catching Telegram FloodWait and transient errors.
     """
     try:
-        return await event.reply(text, parse_mode="html", buttons=buttons)
+        return await event.reply(text, parse_mode=parse_mode, buttons=buttons, **kwargs)
     except FloodWaitError as e:
         logger.warning(f"Telegram FloodWait on reply: {e.seconds}s")
         await asyncio.sleep(min(e.seconds, 5))

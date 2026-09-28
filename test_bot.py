@@ -73,8 +73,19 @@ def test_khmer_text_and_button_aliases():
         assert cmd == expected_cmd, f"Expected {expected_cmd} for '{raw_txt}', got {cmd}"
 
 
+def test_safe_reply_parameters():
+    """Verify safe_reply and safe_edit_or_respond accept parse_mode and kwargs."""
+    import inspect
+    sig_reply = inspect.signature(bot.safe_reply)
+    sig_edit = inspect.signature(bot.safe_edit_or_respond)
+    assert "parse_mode" in sig_reply.parameters, "safe_reply must have parse_mode"
+    assert "parse_mode" in sig_edit.parameters, "safe_edit_or_respond must have parse_mode"
+
+
 if __name__ == "__main__":
     test_master_owner_permissions()
     test_admin_panel_buttons()
     test_khmer_text_and_button_aliases()
+    test_safe_reply_parameters()
     print(f"✅ All unit tests passed successfully for Version v{config.BOT_VERSION}!")
+
