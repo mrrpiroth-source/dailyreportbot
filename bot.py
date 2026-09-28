@@ -346,10 +346,11 @@ def build_admin_panel():
             Button.inline("🧹 Clear សិទ្ធិទាំងអស់", data=b"admin_confirm_clear"),
         ],
         [
-            Button.inline("ℹ️ ពិនិត្យ Status / Version", data=b"admin_status"),
-            Button.inline("🔄 Sync សារចាស់ៗ", data=b"admin_sync_menu"),
+            Button.inline("🚀 Update & Restart Bot", data=b"admin_trigger_update"),
+            Button.inline("ℹ️ ស្ថានភាព / Version", data=b"admin_status"),
         ],
         [
+            Button.inline("🔄 Sync សារចាស់ៗ", data=b"admin_sync_menu"),
             Button.inline("❌ បិទផ្ទាំង (Close)", data=b"mgm_close")
         ]
     ]
@@ -692,6 +693,61 @@ def setup_handlers(client: TelegramClient):
             ]
             await event.edit(res_text, parse_mode="html", buttons=b)
             await event.answer("🧹 Clear សិទ្ធិជោគជ័យ!")
+        elif data == b"admin_trigger_update":
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+
+            hook_url = getattr(config, "RENDER_DEPLOY_HOOK", "")
+            if hook_url and hook_url.startswith("http"):
+                try:
+                    import urllib.request
+                    req = urllib.request.Request(hook_url, data=b"", method="POST")
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        logger.info(f"Triggered Render deploy hook: status {resp.status}")
+
+                    update_text = (
+                        "🚀 <b>បានបញ្ជា Render ឱ្យ Update Bot ជោគជ័យ!</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        "📡 ប្រព័ន្ធ Render កំពុងទាញយកកូដចុងក្រោយបំផុតមក Deploy...\n"
+                        "⏳ សូមរង់ចាំប្រហែល <b>1 ទៅ 2 នាទី</b>។\n\n"
+                        "✅ <i>នៅពេល Update ចប់ Bot នឹង Restart និងផ្ញើសារ Alert មកកាន់បងដោយស្វ័យប្រវត្ត!</i>"
+                    )
+                    b = [[Button.inline("🔙 ត្រឡប់ទៅ Admin Panel", data=b"admin_panel")]]
+                    await event.edit(update_text, parse_mode="html", buttons=b)
+                    await event.answer("🚀 កំពុងដំណើរការ Update Bot...")
+                    return
+                except Exception as e:
+                    logger.error(f"Deploy hook trigger failed: {e}")
+
+            # Fallback: Confirm process restart
+            restart_text = (
+                "🔄 <b>ការ Restart & Update ប្រព័ន្ធ Bot</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "តើលោកអ្នក (Avata) ចង់ Restart ប្រព័ន្ធ Bot ឱ្យទាញយកកំណែថ្មីឡើងវិញឥឡូវនេះមែនទេ?\n\n"
+                "💡 <i>(នៅលើ Render ប្រព័ន្ធនឹង Restart និងទាញយកកំណែចុងក្រោយបំផុតមកដំណើរការឡើងវិញភ្លាមៗ)</i>"
+            )
+            b = [
+                [
+                    Button.inline("⚡ បញ្ជាក់ការ Restart ឥឡូវនេះ", data=b"admin_do_restart"),
+                    Button.inline("🔙 ថយក្រោយ", data=b"admin_panel")
+                ]
+            ]
+            await event.edit(restart_text, parse_mode="html", buttons=b)
+            return
+
+        elif data == b"admin_do_restart":
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+
+            await event.answer("🔄 កំពុង Restart Bot...", alert=True)
+            await event.edit(
+                "🔄 <b>ប្រព័ន្ធកំពុងដំណើរការ Restart...</b>\n\n"
+                "⏳ សូមរង់ចាំប្រហែល ៣០ វិនាទី ទៅ ១ នាទី។ Bot នឹងផ្ញើសារ Alert មកវិញនៅពេលដំណើរការរួចរាល់!",
+                parse_mode="html"
+            )
+            asyncio.get_event_loop().call_later(1.0, lambda: os._exit(0))
             return
 
         elif data == b"admin_status":
@@ -1128,10 +1184,11 @@ def setup_handlers(client: TelegramClient):
                         parse_mode="html"
                     )
                 else:
-                    await event.reply(
-                        "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Access Denied)</b>\n\n"
-                        "⚠️ <b>លោកអ្នកកំពុងបើកមុខងារ 'Send anonymously' (ផ្ញើអនាមិក)!</b>\n\n"
-                        "ដើម្បីឱ្យប្រព័ន្ធអាចចាប់យកឈ្មោះ និង Telegram User ID របស់អ្នកផ្ញើទៅកាន់ម្ចាស់ Bot (Avata) សម្រាប់ស្នើសុំការ Approve សូម<b>បិទមុខងារ 'Send anonymously'</b> រួចផ្ញើ <code>/today</code> ឬចុចប៊ូតុងខាងក្រោមដោយប្រើគណនីផ្ទាល់ខ្លួន។",
+                    await safe_reply(
+                        event,
+                        "📊 <b>ផ្ទាំងរបាយការណ៍លក់ប្រចាំថ្ងៃ (Daily Sales Report)</b>\n\n"
+                        "👇 <b>សូមចុចលើប៊ូតុងខាងក្រោម ដើម្បីបើកមើលរបាយការណ៍ភ្លាមៗ៖</b>\n"
+                        "💡 <i>(ការចុចលើប៊ូតុងខាងក្រោម នឹងអនុញ្ញាតឱ្យប្រព័ន្ធផ្ទៀងផ្ទាត់សិទ្ធិបុគ្គលិកដោយស្វ័យប្រវត្ត)</i>",
                         parse_mode="html",
                         buttons=get_menu_buttons()
                     )
@@ -1350,6 +1407,27 @@ async def start_bot():
     setup_handlers(client)
     scheduler = setup_scheduler(client)
     scheduler.start()
+
+    # Register official Telegram Bot Commands Menu (Blue Menu button [/] in Telegram)
+    try:
+        from telethon.tl.functions.bots import SetBotCommandsRequest
+        from telethon.tl.types import BotCommand, BotCommandScopeDefault
+        await client(SetBotCommandsRequest(
+            scope=BotCommandScopeDefault(),
+            lang_code="",
+            commands=[
+                BotCommand(command="today", description="📊 មើលរបាយការណ៍លក់ថ្ងៃនេះ (1-Click)"),
+                BotCommand(command="yesterday", description="📅 របាយការណ៍ម្សិលមិញ"),
+                BotCommand(command="week", description="🗓 របាយការណ៍ ៧ថ្ងៃចុងក្រោយ"),
+                BotCommand(command="month", description="📈 របាយការណ៍ប្រចាំខែ"),
+                BotCommand(command="year", description="📆 របាយការណ៍ប្រចាំឆ្នាំ"),
+                BotCommand(command="admin", description="👑 ផ្ទាំងបញ្ជាម្ចាស់ Bot (Avata)"),
+                BotCommand(command="status", description="ℹ️ ពិនិត្យស្ថានភាព Bot & Version"),
+            ]
+        ))
+        logger.info("Registered official Telegram Bot Command Menu successfully.")
+    except Exception as e:
+        logger.debug(f"Could not register Bot Commands menu: {e}")
 
     print(f"⏰ ម៉ោងផ្ញើរបាយការណ៍បូកសរុបប្រចាំថ្ងៃ: {config.DAILY_REPORT_TIME} (ម៉ោងនៅកម្ពុជា)")
     print("📡 កំពុងរង់ចាំ និងស្តាប់សារពីប្រព័ន្ធ KHQR...")
