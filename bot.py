@@ -143,17 +143,14 @@ async def safe_reply(event, text: str, buttons=None):
 
 
 def check_permission(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
-    """Checks if a user is permitted to view financial reports."""
-    # In Telegram groups, ONLY Group Admins can toggle 'Send anonymously' (Remain anonymous)
-    if sender_id is None:
-        if chat_id is not None and (chat_id == config.MONITOR_CHAT_ID or chat_id == config.REPORT_CHAT_ID):
-            return True
+    """
+    Checks if a user is permitted to view financial reports.
+    Strictly enforced: Only Bot Owner(s) (Avata / ADMIN_USER_IDS) and staff explicitly approved
+    in SQLite database (db.is_user_authorized) are allowed to view reports.
+    Even the Group Owner or Group Admins MUST be approved by the Bot Owner (Avata) first.
+    """
+    if sender_id is None or sender_id <= 0:
         return False
-    # If sent as anonymous group admin in the monitored group, permit access
-    if chat_id is not None and sender_id == chat_id:
-        return True
-    if config.MONITOR_CHAT_ID and sender_id == config.MONITOR_CHAT_ID:
-        return True
     if not config.RESTRICT_REPORTS_TO_ADMIN:
         return True
     if not config.ADMIN_USER_IDS:
@@ -164,15 +161,13 @@ def check_permission(sender_id: Optional[int], chat_id: Optional[int] = None) ->
 
 
 def is_admin(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
-    """Checks if a user has full Owner/Super Admin privileges."""
-    if sender_id is None:
-        if chat_id is not None and (chat_id == config.MONITOR_CHAT_ID or chat_id == config.REPORT_CHAT_ID):
-            return True
+    """
+    Checks if a user has full Bot Owner privileges (Avata / ADMIN_USER_IDS).
+    Group Owners or Group Admins do NOT have admin rights over this bot.
+    Only the Bot Owner can approve/deny access requests or manage authorized staff.
+    """
+    if sender_id is None or sender_id <= 0:
         return False
-    if chat_id is not None and sender_id == chat_id:
-        return True
-    if config.MONITOR_CHAT_ID and sender_id == config.MONITOR_CHAT_ID:
-        return True
     if not config.ADMIN_USER_IDS:
         return True
     return sender_id in config.ADMIN_USER_IDS
@@ -196,22 +191,22 @@ async def notify_owner_of_access_request(
 
     last_request_time[user_id] = now
 
-    # Extract user details
+    # Extract user details robustly
     full_name = "User"
     username_str = "គ្មាន Username"
     if user_entity:
         first = getattr(user_entity, "first_name", "") or ""
         last = getattr(user_entity, "last_name", "") or ""
-        full_name = f"{first} {last}".strip() or "User"
+        full_name = f"{first} {last}".strip()
         uname = getattr(user_entity, "username", None)
         if uname:
             username_str = f"@{uname}"
-    else:
+    if not full_name or full_name == "User":
         try:
             ent = await client.get_entity(user_id)
             first = getattr(ent, "first_name", "") or ""
             last = getattr(ent, "last_name", "") or ""
-            full_name = f"{first} {last}".strip() or "User"
+            full_name = f"{first} {last}".strip() or f"User {user_id}"
             uname = getattr(ent, "username", None)
             if uname:
                 username_str = f"@{uname}"
@@ -348,8 +343,11 @@ def setup_handlers(client: TelegramClient):
 
         # Check permission for report inline buttons
         if not check_permission(sender_id, event.chat_id):
-            if sender_id is not None:
+            if sender_id is not None and sender_id > 0:
                 sender_ent = await event.get_sender()
+                first = getattr(sender_ent, "first_name", "") or ""
+                last = getattr(sender_ent, "last_name", "") or ""
+                fname = f"{first} {last}".strip() or f"User {sender_id}"
                 await notify_owner_of_access_request(
                     client=client,
                     user_id=sender_id,
@@ -357,11 +355,18 @@ def setup_handlers(client: TelegramClient):
                     user_entity=sender_ent,
                     source="button"
                 )
-            await event.answer(
-                "⛔ អ្នកមិនទាន់មានសិទ្ធិមើលរបាយការណ៍ហិរញ្ញវត្ថុនេះទេ!\n"
-                "📩 ប្រព័ន្ធបានបញ្ជូនឈ្មោះ និង ID របស់អ្នកទៅម្ចាស់ហាង (Avata) ដើម្បីសុំការអនុញ្ញាតហើយ។",
-                alert=True
-            )
+                await event.answer(
+                    f"⛔ គ្មានសិទ្ធិមើលរបាយការណ៍!\n"
+                    f"👤 ឈ្មោះ: {fname} (ID: {sender_id})\n"
+                    f"📩 បានបញ្ជូនឈ្មោះ និង ID ទៅម្ចាស់ Bot (Avata) ដើម្បីសុំ Approve រួចហើយ!",
+                    alert=True
+                )
+            else:
+                await event.answer(
+                    "⛔ ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ!\n\n"
+                    "⚠️ លោកអ្នកកំពុងបើក Send anonymously។ សូមបិទមុខងារនេះជាមុនសិន ទើបប្រព័ន្ធអាចចាប់យកឈ្មោះ និង Telegram ID របស់អ្នកសុំការ Approve បាន!",
+                    alert=True
+                )
             return
 
         if data == b"btn_today":
@@ -568,8 +573,13 @@ def setup_handlers(client: TelegramClient):
         )
         if any(cmd.startswith(p) for p in report_cmd_prefixes):
             if not check_permission(event.sender_id, chat_id):
-                if event.sender_id is not None:
+                if event.sender_id is not None and event.sender_id > 0:
                     sender = await event.get_sender()
+                    first = getattr(sender, "first_name", "") or ""
+                    last = getattr(sender, "last_name", "") or ""
+                    fname = f"{first} {last}".strip() or f"User {event.sender_id}"
+                    uname_val = getattr(sender, "username", None)
+                    uname_str = f" (@{uname_val})" if uname_val else ""
                     await notify_owner_of_access_request(
                         client=client,
                         user_id=event.sender_id,
@@ -577,23 +587,23 @@ def setup_handlers(client: TelegramClient):
                         user_entity=sender,
                         source="command"
                     )
-                    first = getattr(sender, "first_name", "") or ""
-                    last = getattr(sender, "last_name", "") or ""
-                    fname = f"{first} {last}".strip() or "User"
                     await event.reply(
                         "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Access Denied)</b>\n\n"
-                        "🔒 របាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូល ត្រូវបានការពារដោយសុវត្ថិភាពខ្ពស់។\n\n"
-                        f"👤 ឈ្មោះ: <b>{fname}</b>\n"
-                        f"🔢 Telegram User ID: <code>{event.sender_id}</code>\n\n"
-                        "📩 <b>ប្រព័ន្ធបានផ្ញើឈ្មោះ និង User ID របស់អ្នកទៅកាន់ម្ចាស់ Bot (Avata) រួចរាល់ហើយ!</b>\n"
+                        "🔒 <b>របាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូល ត្រូវបានការពារដោយសុវត្ថិភាពខ្ពស់។</b>\n"
+                        "<i>(ទោះបីជា Owner ឬ Admin របស់ Group ក៏ត្រូវតែទទួលបានការអនុញ្ញាតពីម្ចាស់ Bot ជាមុនសិនដែរ)</i>\n\n"
+                        f"👤 <b>ឈ្មោះ:</b> {fname}{uname_str}\n"
+                        f"🔢 <b>Telegram User ID:</b> <code>{event.sender_id}</code>\n\n"
+                        "📩 <b>ប្រព័ន្ធបានចាប់យកឈ្មោះ និង Telegram ID របស់អ្នកបញ្ជូនទៅម្ចាស់ Bot (Avata) រួចរាល់ហើយ!</b>\n"
                         "💡 <i>សូមរង់ចាំម្ចាស់ Bot ចុចយល់ព្រម (Approve) មួយភ្លែត។</i>",
                         parse_mode="html"
                     )
                 else:
                     await event.reply(
                         "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Access Denied)</b>\n\n"
-                        "⚠️ <i>លោកអ្នកកំពុងបើកមុខងារ 'Send anonymously' (ផ្ញើអនាមិក)។ ប្រសិនបើលោកអ្នកចង់ស្នើសុំសិទ្ធិ សូមបិទមុខងារ Send anonymously ជាមុនសិន ដើម្បីឱ្យប្រព័ន្ធអាចសម្គាល់ User ID របស់អ្នកបាន។</i>",
-                        parse_mode="html"
+                        "⚠️ <b>លោកអ្នកកំពុងបើកមុខងារ 'Send anonymously' (ផ្ញើអនាមិក)!</b>\n\n"
+                        "ដើម្បីឱ្យប្រព័ន្ធអាចចាប់យកឈ្មោះ និង Telegram User ID របស់អ្នកផ្ញើទៅកាន់ម្ចាស់ Bot (Avata) សម្រាប់ស្នើសុំការ Approve សូម<b>បិទមុខងារ 'Send anonymously'</b> រួចផ្ញើ <code>/today</code> ឬចុចប៊ូតុងខាងក្រោមដោយប្រើគណនីផ្ទាល់ខ្លួន។",
+                        parse_mode="html",
+                        buttons=get_menu_buttons()
                     )
                 return
 
