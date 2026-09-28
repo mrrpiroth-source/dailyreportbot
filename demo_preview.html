@@ -608,19 +608,22 @@
             🛒 <b>ចំនួនលក់សរុប:</b> <b>${totalCount}</b> លើក<br><br>
             💵 <b>ប្រាក់ដុល្លារ (USD):</b><br>
             &nbsp;&nbsp;• ទឹកប្រាក់សរុប: <b><code>${formatMoney(usd, 'USD')}</code></b><br>
-            &nbsp;&nbsp;• ចំនួនលក់: <b>${countUsd}</b> លើក<br>
-            &nbsp;&nbsp;• មធ្យមភាគ/ការលក់: <code>${formatMoney(avgUsd, 'USD')}</code><br><br>
+            &nbsp;&nbsp;• ចំនួនលក់: <b>${countUsd}</b> លើក<br><br>
             🇰🇭 <b>ប្រាក់រៀល (KHR):</b><br>
             &nbsp;&nbsp;• ទឹកប្រាក់សរុប: <b><code>${formatMoney(khr, 'KHR')}</code></b><br>
             &nbsp;&nbsp;• ចំនួនលក់: <b>${countKhr}</b> លើក<br>
-            &nbsp;&nbsp;• មធ្យមភាគ/ការលក់: <code>${formatMoney(avgKhr, 'KHR')}</code><br>
+            ━━━━━━━━━━━━━━━━━━━━━━━━━<br>
+            ⚖️ <b>ការប្រៀបធៀបការលក់ (ម្សិលមិញ VS ថ្ងៃនេះ):</b><br>
+            &nbsp;&nbsp;• ប្រាក់ដុល្លារ ($): <b>ស្មើគ្នា ($0.00)</b><br>
+            &nbsp;&nbsp;• ប្រាក់រៀល (៛): <b>+ 30,000 ៛ 📈 (កើនឡើង)</b><br>
+            &nbsp;&nbsp;• ចំនួនប្រតិបត្តិការ: <b>+ 6 លើក 📈 (កើនឡើង)</b><br>
             ━━━━━━━━━━━━━━━━━━━━━━━━━<br>
             ✨ <i>ទិន្នន័យត្រូវបានកត់ត្រា និងបូកសរុបស្វ័យប្រវត្ត</i>
             <div class="inline-keyboard">
               <div class="btn-inline" onclick="triggerReport('today')">📊 ថ្ងៃនេះ</div>
               <div class="btn-inline" onclick="triggerReport('yesterday')">📅 ម្សិលមិញ</div>
               <div class="btn-inline" onclick="triggerReport('month')">📈 ប្រចាំខែ</div>
-              <div class="btn-inline" onclick="triggerReport('recent')">📋 ៥ ចុងក្រោយ</div>
+              <div class="btn-inline" onclick="triggerReport('year')">📆 ប្រចាំឆ្នាំ</div>
             </div>
             <span class="msg-time">${time}</span>
           </div>

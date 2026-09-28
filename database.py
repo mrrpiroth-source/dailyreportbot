@@ -305,6 +305,120 @@ class Database:
         finally:
             conn.close()
 
+    def get_summary_by_year(self, target_year: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Calculates yearly summary for YYYY. Defaults to current year.
+        Includes monthly breakdown for all months with transactions.
+        """
+        if not target_year:
+            target_year = get_cambodia_now().strftime("%Y")
+
+        year_pattern = f"{target_year}%"
+
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # USD
+            cursor.execute("""
+                SELECT 
+                    COALESCE(SUM(amount), 0) as total, 
+                    COUNT(id) as count
+                FROM transactions
+                WHERE currency = 'USD' AND transaction_time LIKE ?
+            """, (year_pattern,))
+            usd_row = cursor.fetchone()
+            total_usd = float(usd_row["total"]) if usd_row else 0.0
+            count_usd = int(usd_row["count"]) if usd_row else 0
+
+            # KHR
+            cursor.execute("""
+                SELECT 
+                    COALESCE(SUM(amount), 0) as total, 
+                    COUNT(id) as count
+                FROM transactions
+                WHERE currency = 'KHR' AND transaction_time LIKE ?
+            """, (year_pattern,))
+            khr_row = cursor.fetchone()
+            total_khr = float(khr_row["total"]) if khr_row else 0.0
+            count_khr = int(khr_row["count"]) if khr_row else 0
+
+            # Active days in year
+            cursor.execute("""
+                SELECT COUNT(DISTINCT SUBSTR(transaction_time, 1, 10)) as active_days
+                FROM transactions
+                WHERE transaction_time LIKE ?
+            """, (year_pattern,))
+            active_days_row = cursor.fetchone()
+            active_days = int(active_days_row["active_days"]) if active_days_row else 0
+
+            # Monthly breakdown
+            cursor.execute("""
+                SELECT 
+                    SUBSTR(transaction_time, 6, 2) as month_num,
+                    currency,
+                    COALESCE(SUM(amount), 0) as total,
+                    COUNT(id) as count
+                FROM transactions
+                WHERE transaction_time LIKE ?
+                GROUP BY SUBSTR(transaction_time, 6, 2), currency
+                ORDER BY month_num ASC
+            """, (year_pattern,))
+            breakdown_rows = cursor.fetchall()
+            
+            # Aggregate by month
+            months_dict = {}
+            for r in breakdown_rows:
+                m = r["month_num"]
+                curr = r["currency"]
+                if m not in months_dict:
+                    months_dict[m] = {"month": m, "total_usd": 0.0, "total_khr": 0.0, "count": 0}
+                months_dict[m]["count"] += int(r["count"])
+                if curr == "USD":
+                    months_dict[m]["total_usd"] += float(r["total"])
+                elif curr == "KHR":
+                    months_dict[m]["total_khr"] += float(r["total"])
+
+            return {
+                "year": target_year,
+                "total_usd": total_usd,
+                "count_usd": count_usd,
+                "total_khr": total_khr,
+                "count_khr": count_khr,
+                "total_count": count_usd + count_khr,
+                "active_days": active_days,
+                "monthly_breakdown": list(months_dict.values())
+            }
+        finally:
+            conn.close()
+
+    def get_daily_comparison(self, target_date: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Compares sales between target_date (default today) and yesterday.
+        Calculates increase or decrease in USD, KHR, and transaction count.
+        """
+        if not target_date:
+            target_date = get_cambodia_today_str()
+
+        target_dt = datetime.datetime.strptime(target_date, "%Y-%m-%d")
+        yesterday_str = (target_dt - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+
+        today_summary = self.get_summary_by_date(target_date)
+        yesterday_summary = self.get_summary_by_date(yesterday_str)
+
+        diff_usd = today_summary["total_usd"] - yesterday_summary["total_usd"]
+        diff_khr = today_summary["total_khr"] - yesterday_summary["total_khr"]
+        diff_count = today_summary["total_count"] - yesterday_summary["total_count"]
+
+        return {
+            "today": today_summary,
+            "yesterday": yesterday_summary,
+            "yesterday_date": yesterday_str,
+            "diff_usd": diff_usd,
+            "diff_khr": diff_khr,
+            "diff_count": diff_count,
+        }
+
     def get_recent_transactions(self, limit: int = 5) -> List[Dict[str, Any]]:
         """Returns the most recent transactions."""
         conn = self.get_connection()

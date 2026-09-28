@@ -34,6 +34,7 @@ from database import Database, CAMBODIA_TZ, get_cambodia_now, get_cambodia_today
 from parser import KHQRParser
 from reporter import (
     format_daily_summary,
+    format_yearly_summary,
     format_monthly_summary,
     format_range_summary,
     format_transaction_alert,
@@ -63,13 +64,13 @@ def get_menu_buttons():
             Button.inline("📈 ប្រចាំខែ (Month)", data=b"btn_month"),
         ],
         [
-            Button.inline("📋 ប្រតិបត្តិការ ៥ ចុងក្រោយ", data=b"btn_recent")
+            Button.inline("📆 របាយការណ៍ប្រចាំឆ្នាំ (Year)", data=b"btn_year")
         ]
     ]
 
 
 async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[Any] = None):
-    """Generates and sends the daily summary report to the target chat."""
+    """Generates and sends the daily summary report to the target chat with sales comparison."""
     chat_id = target_chat_id or config.REPORT_CHAT_ID or config.MONITOR_CHAT_ID
     if not chat_id:
         logger.warning("No REPORT_CHAT_ID or MONITOR_CHAT_ID configured. Cannot send daily summary.")
@@ -77,7 +78,8 @@ async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[An
 
     today_str = get_cambodia_today_str()
     summary = db.get_summary_by_date(today_str)
-    message_text = format_daily_summary(summary, title_prefix="ប្រចាំថ្ងៃ")
+    comparison = db.get_daily_comparison(today_str)
+    message_text = format_daily_summary(summary, comparison=comparison, title_prefix="ប្រចាំថ្ងៃ")
 
     try:
         await client.send_message(chat_id, message_text, parse_mode="html", buttons=get_menu_buttons())
@@ -198,8 +200,8 @@ async def notify_owner_of_access_request(
 
     approval_buttons = [
         [
-            Button.inline("✅ យល់ព្រម (Approve Staff)", data=f"appr_{user_id}".encode()),
-            Button.inline("❌ បដិសេធ (Deny)", data=f"deny_{user_id}".encode()),
+            Button.inline("✅ អនុញ្ញាត (Approve)", data=f"appr_{user_id}".encode()),
+            Button.inline("❌ មិនអនុញ្ញាត (Not Approve)", data=f"deny_{user_id}".encode()),
         ]
     ]
 
@@ -244,14 +246,15 @@ def setup_handlers(client: TelegramClient):
 
             now_str = get_cambodia_now().strftime("%Y-%m-%d %H:%M:%S")
             approved_text = (
-                "✅ <b>បានអនុញ្ញាតសិទ្ធិដោយជោគជ័យ!</b>\n\n"
+                "✅ <b>បានអនុញ្ញាតសិទ្ធិដោយជោគជ័យ! (Approved)</b>\n\n"
                 f"👤 បុគ្គលិក: <b>{target_name}</b> (<code>{target_id}</code>)\n"
                 f"🛡️ តួនាទី: <b>STAFF (បុគ្គលិកមានសិទ្ធិ)</b>\n"
-                f"⏰ ម៉ោងអនុម័ត: <b>{now_str}</b>\n\n"
+                f"⏰ ម៉ោងអនុម័ត: <b>{now_str}</b>\n"
+                f"👑 អនុម័តដោយម្ចាស់ Bot: <b>AVATA 🇸🇸</b>\n\n"
                 "<i>បុគ្គលិកនេះអាចមើលរបាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូលបានហើយ។</i>"
             )
             await event.edit(approved_text, parse_mode="html")
-            await event.answer("✅ បានអនុម័តជោគជ័យ!")
+            await event.answer("✅ បានអនុម័តជោគជ័យ (Approved)!")
 
             # Announce in the group chat so staff knows immediately
             notify_chat = req_info.get("chat_id") or config.MONITOR_CHAT_ID
@@ -259,8 +262,8 @@ def setup_handlers(client: TelegramClient):
                 try:
                     await client.send_message(
                         notify_chat,
-                        f"🎉 <b>ការស្នើសុំសិទ្ធិត្រូវបានអនុម័ត!</b>\n\n"
-                        f"👤 <b>{target_name}</b> ត្រូវបានម្ចាស់ហាងអនុញ្ញាតឱ្យមើលរបាយការណ៍ហិរញ្ញវត្ថុក្នុង Group នេះបានហើយ។\n\n"
+                        f"🎉 <b>ការស្នើសុំសិទ្ធិត្រូវបានអនុម័ត! (Approved)</b>\n\n"
+                        f"👤 <b>{target_name}</b> ត្រូវបានម្ចាស់ Bot (Avata) អនុញ្ញាតឱ្យមើលរបាយការណ៍ហិរញ្ញវត្ថុក្នុង Group នេះបានហើយ។\n\n"
                         f"👉 លោកអ្នកអាចចុច <code>/today</code> ឬប៊ូតុងខាងក្រោមដើម្បីពិនិត្យការលក់:",
                         parse_mode="html",
                         buttons=get_menu_buttons()
@@ -279,11 +282,11 @@ def setup_handlers(client: TelegramClient):
             target_name = req_info.get("full_name") or f"User {target_id}"
 
             denied_text = (
-                f"❌ <b>បានបដិសេធសំណើរបស់</b> <b>{target_name}</b> (<code>{target_id}</code>)។\n\n"
-                f"<i>អ្នកប្រើប្រាស់នេះមិនត្រូវបានអនុញ្ញាតឱ្យមើលរបាយការណ៍ឡើយ។</i>"
+                f"❌ <b>មិនអនុញ្ញាត (Not Approved)</b>\n\n"
+                f"បុគ្គលិក <b>{target_name}</b> (<code>{target_id}</code>) មិនត្រូវបានអនុញ្ញាតឱ្យមើលរបាយការណ៍ឡើយ។"
             )
             await event.edit(denied_text, parse_mode="html")
-            await event.answer("❌ បានបដិសេធសំណើ!")
+            await event.answer("❌ មិនអនុញ្ញាត (Not Approved)!")
             return
 
         # Check permission for report inline buttons
@@ -299,14 +302,16 @@ def setup_handlers(client: TelegramClient):
                 )
             await event.answer(
                 "⛔ អ្នកមិនទាន់មានសិទ្ធិមើលរបាយការណ៍ហិរញ្ញវត្ថុនេះទេ!\n"
-                "📩 ប្រព័ន្ធបានបញ្ជូនឈ្មោះ និង ID របស់អ្នកទៅម្ចាស់ហាងដើម្បីសុំការអនុញ្ញាតហើយ។",
+                "📩 ប្រព័ន្ធបានបញ្ជូនឈ្មោះ និង ID របស់អ្នកទៅម្ចាស់ហាង (Avata) ដើម្បីសុំការអនុញ្ញាតហើយ។",
                 alert=True
             )
             return
 
         if data == b"btn_today":
-            summary = db.get_summary_by_date(get_cambodia_today_str())
-            msg = format_daily_summary(summary, title_prefix="ថ្ងៃនេះ (Today)")
+            today_str = get_cambodia_today_str()
+            summary = db.get_summary_by_date(today_str)
+            comparison = db.get_daily_comparison(today_str)
+            msg = format_daily_summary(summary, comparison=comparison, title_prefix="ថ្ងៃនេះ (Today)")
             await event.respond(msg, parse_mode="html", buttons=get_menu_buttons())
             await event.answer()
 
@@ -330,19 +335,11 @@ def setup_handlers(client: TelegramClient):
             await event.respond(msg, parse_mode="html", buttons=get_menu_buttons())
             await event.answer()
 
-        elif data == b"btn_recent":
-            recent = db.get_recent_transactions(limit=5)
-            if not recent:
-                await event.respond("📭 មិនទាន់មានប្រតិបត្តិការត្រូវបានកត់ត្រានៅឡើយទេ។", parse_mode="html")
-            else:
-                reply_lines = ["📋 <b>ប្រតិបត្តិការ ៥ ចុងក្រោយ:</b>\n"]
-                for item in recent:
-                    amt_str = format_currency(item["amount"], item["currency"])
-                    payer = item.get("payer_name") or "ភ្ញៀវ"
-                    ref = item.get("ref_code") or "N/A"
-                    time_str = item.get("transaction_time") or ""
-                    reply_lines.append(f"• <b>{amt_str}</b> | {payer} | Ref: <code>{ref}</code> ({time_str})")
-                await event.respond("\n".join(reply_lines), parse_mode="html", buttons=get_menu_buttons())
+        elif data == b"btn_year":
+            current_year = get_cambodia_now().strftime("%Y")
+            summary = db.get_summary_by_year(current_year)
+            msg = format_yearly_summary(summary)
+            await event.respond(msg, parse_mode="html", buttons=get_menu_buttons())
             await event.answer()
 
     # 2. Listener for new messages (monitoring KHQR payments & text commands)
@@ -482,8 +479,8 @@ def setup_handlers(client: TelegramClient):
             "/yesterday", ".yesterday", "ម្សិលមិញ",
             "/week", ".week", "/weekly", ".weekly", "សប្តាហ៍នេះ",
             "/month", ".month", "បូកសរុបខែនេះ",
+            "/year", ".year", "/yearly", ".yearly", "ប្រចាំឆ្នាំ",
             "/report", ".report",
-            "/recent", ".recent",
             "/sync", ".sync", "/backfill"
         )
         if any(cmd.startswith(p) for p in report_cmd_prefixes):
@@ -505,8 +502,8 @@ def setup_handlers(client: TelegramClient):
                         "🔒 របាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូល ត្រូវបានការពារដោយសុវត្ថិភាពខ្ពស់។\n\n"
                         f"👤 ឈ្មោះ: <b>{fname}</b>\n"
                         f"🔢 Telegram User ID: <code>{event.sender_id}</code>\n\n"
-                        "📩 <b>ប្រព័ន្ធបានផ្ញើឈ្មោះ និង User ID របស់អ្នកទៅកាន់ម្ចាស់ហាង (@Pirothz) រួចរាល់ហើយ!</b>\n"
-                        "💡 <i>សូមរង់ចាំម្ចាស់ហាងចុចយល់ព្រម (Approve) មួយភ្លែត។</i>",
+                        "📩 <b>ប្រព័ន្ធបានផ្ញើឈ្មោះ និង User ID របស់អ្នកទៅកាន់ម្ចាស់ Bot (Avata) រួចរាល់ហើយ!</b>\n"
+                        "💡 <i>សូមរង់ចាំម្ចាស់ Bot ចុចយល់ព្រម (Approve) មួយភ្លែត។</i>",
                         parse_mode="html"
                     )
                 else:
@@ -519,8 +516,10 @@ def setup_handlers(client: TelegramClient):
 
         # 6. Execute Allowed Report Commands
         if cmd in ("/today", ".today", "បូកសរុបថ្ងៃនេះ"):
-            summary = db.get_summary_by_date(get_cambodia_today_str())
-            msg = format_daily_summary(summary, title_prefix="ថ្ងៃនេះ (Today)")
+            today_str = get_cambodia_today_str()
+            summary = db.get_summary_by_date(today_str)
+            comparison = db.get_daily_comparison(today_str)
+            msg = format_daily_summary(summary, comparison=comparison, title_prefix="ថ្ងៃនេះ (Today)")
             await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
             return
 
@@ -544,6 +543,13 @@ def setup_handlers(client: TelegramClient):
             await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
             return
 
+        elif cmd in ("/year", ".year", "/yearly", ".yearly", "ប្រចាំឆ្នាំ", "បូកសរុបប្រចាំឆ្នាំ"):
+            current_year = get_cambodia_now().strftime("%Y")
+            summary = db.get_summary_by_year(current_year)
+            msg = format_yearly_summary(summary)
+            await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
+            return
+
         elif cmd.startswith(("/report", ".report")):
             parts = text_stripped.split()
             if len(parts) > 1:
@@ -559,24 +565,11 @@ def setup_handlers(client: TelegramClient):
                         parse_mode="html"
                     )
             else:
-                summary = db.get_summary_by_date(get_cambodia_today_str())
-                msg = format_daily_summary(summary, title_prefix="ថ្ងៃនេះ (Today)")
+                today_str = get_cambodia_today_str()
+                summary = db.get_summary_by_date(today_str)
+                comparison = db.get_daily_comparison(today_str)
+                msg = format_daily_summary(summary, comparison=comparison, title_prefix="ថ្ងៃនេះ (Today)")
                 await event.reply(msg, parse_mode="html", buttons=get_menu_buttons())
-            return
-
-        elif cmd in ("/recent", ".recent"):
-            recent = db.get_recent_transactions(limit=5)
-            if not recent:
-                await event.reply("📭 មិនទាន់មានប្រតិបត្តិការត្រូវបានកត់ត្រានៅឡើយទេ។", parse_mode="html")
-                return
-            reply_lines = ["📋 <b>ប្រតិបត្តិការ ៥ ចុងក្រោយ:</b>\n"]
-            for item in recent:
-                amt_str = format_currency(item["amount"], item["currency"])
-                payer = item.get("payer_name") or "ភ្ញៀវ"
-                ref = item.get("ref_code") or "N/A"
-                time_str = item.get("transaction_time") or ""
-                reply_lines.append(f"• <b>{amt_str}</b> | {payer} | Ref: <code>{ref}</code> ({time_str})")
-            await event.reply("\n".join(reply_lines), parse_mode="html", buttons=get_menu_buttons())
             return
 
         elif cmd.startswith(("/sync", ".sync", "/backfill")):
@@ -609,12 +602,15 @@ def setup_handlers(client: TelegramClient):
             is_adm = is_admin(event.sender_id)
             help_text = (
                 "🤖 <b>KHQR Sales & Daily Report Telegram Bot</b>\n\n"
+                "👑 <b>ម្ចាស់ Bot (Owner):</b> <b>AVATA 🇸🇸</b> (@avatalamiyamal)\n\n"
                 "📌 <b>របាយការណ៍ដែលលោកអ្នកអាចមើលបាន:</b>\n"
                 "• <b>ទឹកប្រាក់សរុប:</b> បែងចែកប្រាក់ដុល្លារ ($) និងប្រាក់រៀល (៛)\n"
                 "• <b>ចំនួនលក់សរុប:</b> រាប់ចំនួនលើកនៃការទូទាត់ជោគជ័យ\n"
-                "• <b>មធ្យមភាគការលក់:</b> បង្ហាញតម្លៃមធ្យមក្នុងមួយវិក្កយបត្រ\n\n"
+                "• <b>ប្រៀបធៀបការលក់:</b> បង្ហាញការកើនឡើង ឬថយចុះធៀបនឹងម្សិលមិញ\n"
+                "• <b>របាយការណ៍ប្រចាំឆ្នាំ:</b> បង្ហាញចំណូលសរុបប្រចាំឆ្នាំ និងតាមខែនីមួយៗ\n\n"
                 "🛡️ <b>សុវត្ថិភាព និងការគ្រប់គ្រងសិទ្ធិ:</b>\n"
                 "• <code>/myid</code> — មើល Telegram User ID របស់អ្នក\n"
+                "• <code>/year</code> — មើលរបាយការណ៍ប្រចាំឆ្នាំ\n"
             )
             if is_adm:
                 help_text += (
