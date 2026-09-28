@@ -68,7 +68,7 @@ RESTRICT_REPORTS_TO_ADMIN = os.getenv("RESTRICT_REPORTS_TO_ADMIN", "true").lower
 DB_PATH = os.getenv("DB_PATH", "khqr_reports.db")
 
 # Bot Application Version
-BOT_VERSION = "2.5.1"
+BOT_VERSION = "2.5.2"
 
 # Optional Render Deploy Hook for automatic deployment on push
 RENDER_DEPLOY_HOOK = os.getenv("RENDER_DEPLOY_HOOK", "")

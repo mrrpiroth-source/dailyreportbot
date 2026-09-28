@@ -93,9 +93,11 @@ async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[An
 
 # Cache for pending access requests and debouncing notifications
 pending_requests: Dict[int, dict] = {}
-last_request_time: Dict[int, float] = {}
-last_callback_time: Dict[str, float] = {}
-last_command_time: Dict[str, float] = {}
+last_request_time: Dict[int, float] = {}       # Owner notification debounce (per user)
+last_callback_time: Dict[str, float] = {}      # Button tap debounce (per user+button)
+last_command_time: Dict[str, float] = {}       # Command rate limit (per user)
+last_access_denied_time: Dict[str, float] = {} # Access Denied reply debounce (per user+chat)
+last_khqr_time: Dict[str, float] = {}          # KHQR message processing debounce (per chat+ref)
 
 
 async def safe_edit_or_respond(event, text: str, buttons=None, parse_mode: str = "html", **kwargs):
@@ -222,8 +224,8 @@ async def notify_owner_of_access_request(
     Organized strictly by group with user's role confirmation (owner, admin, or member).
     """
     now = time.time()
-    # Debounce: don't spam owner if clicked repeatedly within 30 seconds
-    if user_id in last_request_time and (now - last_request_time[user_id]) < 30:
+    # Debounce: don't spam owner if same user clicks repeatedly within 120 seconds (2 minutes)
+    if user_id in last_request_time and (now - last_request_time[user_id]) < 120:
         return
 
     last_request_time[user_id] = now
@@ -1016,11 +1018,11 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
         if is_sender_bot and text.startswith(("/", ".")):
             return
 
-        # SAFETY 2: Anti-Flood Rate limit commands per user (minimum 1.0s cooldown)
+        # SAFETY 2: Anti-Flood Rate limit commands per user (minimum 3.0s cooldown)
         if text.startswith(("/", ".")) and event.sender_id is not None:
             user_key = f"cmd_{event.sender_id}"
             now_ts = time.time()
-            if user_key in last_command_time and (now_ts - last_command_time[user_key]) < 1.0:
+            if user_key in last_command_time and (now_ts - last_command_time[user_key]) < 3.0:
                 logger.warning(f"Command throttled for user {event.sender_id} to prevent spam")
                 return
             last_command_time[user_key] = now_ts
@@ -1280,16 +1282,26 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
                         source="command",
                         group_role=g_role
                     )
-                    await event.reply(
-                        "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Access Denied)</b>\n\n"
-                        "🔒 <b>របាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូល ត្រូវបានការពារដោយសុវត្ថិភាពខ្ពស់។</b>\n"
-                        "<i>(ទោះបីជា Owner ឬ Admin របស់ Group ក៏ត្រូវតែទទួលបានការអនុញ្ញាតពីម្ចាស់ Bot ជាមុនសិនដែរ)</i>\n\n"
-                        f"👤 <b>ឈ្មោះ:</b> {fname} ({g_role}){uname_str}\n"
-                        f"🔢 <b>Telegram User ID:</b> <code>{event.sender_id}</code>\n\n"
-                        "📩 <b>ប្រព័ន្ធបានចាប់យកឈ្មោះ និង Telegram ID របស់អ្នកបញ្ជូនទៅម្ចាស់ Bot (Avata) រួចរាល់ហើយ!</b>\n"
-                        "💡 <i>សូមរង់ចាំម្ចាស់ Bot ចុចយល់ព្រម (Approve) មួយភ្លែត។</i>",
-                        parse_mode="html"
-                    )
+
+                    # SPAM GUARD: Debounce "Access Denied" reply per user per chat (60s cooldown)
+                    # Prevents group spam when user repeatedly types /today without permission.
+                    ad_key = f"{event.sender_id}_{chat_id}"
+                    now_ad = time.time()
+                    if ad_key not in last_access_denied_time or (now_ad - last_access_denied_time[ad_key]) >= 60:
+                        last_access_denied_time[ad_key] = now_ad
+                        await event.reply(
+                            "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Access Denied)</b>\n\n"
+                            "🔒 <b>របាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូល ត្រូវបានការពារដោយសុវត្ថិភាពខ្ពស់។</b>\n"
+                            "<i>(ទោះបីជា Owner ឬ Admin របស់ Group ក៏ត្រូវតែទទួលបានការអនុញ្ញាតពីម្ចាស់ Bot ជាមុនសិនដែរ)</i>\n\n"
+                            f"👤 <b>ឈ្មោះ:</b> {fname} ({g_role}){uname_str}\n"
+                            f"🔢 <b>Telegram User ID:</b> <code>{event.sender_id}</code>\n\n"
+                            "📩 <b>ប្រព័ន្ធបានចាប់យកឈ្មោះ និង Telegram ID របស់អ្នកបញ្ជូនទៅម្ចាស់ Bot (Avata) រួចរាល់ហើយ!</b>\n"
+                            "💡 <i>សូមរង់ចាំម្ចាស់ Bot ចុចយល់ព្រម (Approve) មួយភ្លែត។</i>",
+                            parse_mode="html"
+                        )
+                    else:
+                        # Silent throttle — don't reply again to avoid group spam
+                        logger.info(f"Access Denied reply throttled for user {event.sender_id} in chat {chat_id} (cooldown active)")
                 else:
                     await safe_reply(
                         event,
