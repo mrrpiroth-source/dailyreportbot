@@ -142,35 +142,56 @@ async def safe_reply(event, text: str, buttons=None):
 
 
 
-def check_permission(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
+def check_permission(sender_id: Optional[Any], chat_id: Optional[int] = None) -> bool:
     """
     Checks if a user is permitted to view financial reports.
     Strictly enforced: Only Bot Owner(s) (Avata / ADMIN_USER_IDS) and staff explicitly approved
     in SQLite database (db.is_user_authorized) are allowed to view reports.
     Even the Group Owner or Group Admins MUST be approved by the Bot Owner (Avata) first.
     """
-    if sender_id is None or sender_id <= 0:
+    if sender_id is None:
         return False
+    try:
+        s_id = int(sender_id)
+    except (ValueError, TypeError):
+        return False
+    if s_id <= 0:
+        return False
+    # 1. Master Bot Owner Avata (7299682335) has permanent Super Admin rights
+    if s_id == config.MASTER_BOT_OWNER_ID:
+        return True
     if not config.RESTRICT_REPORTS_TO_ADMIN:
         return True
-    if not config.ADMIN_USER_IDS:
+    if config.ADMIN_USER_IDS and s_id in config.ADMIN_USER_IDS:
         return True
-    if sender_id in config.ADMIN_USER_IDS:
-        return True
-    return db.is_user_authorized(sender_id)
+    return db.is_user_authorized(s_id, chat_id)
 
 
-def is_admin(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
+def is_admin(sender_id: Optional[Any], chat_id: Optional[int] = None) -> bool:
     """
     Checks if a user has full Bot Owner privileges (Avata / ADMIN_USER_IDS).
     Group Owners or Group Admins do NOT have admin rights over this bot.
     Only the Bot Owner can approve/deny access requests or manage authorized staff.
     """
-    if sender_id is None or sender_id <= 0:
+    if sender_id is None:
         return False
-    if not config.ADMIN_USER_IDS:
+    try:
+        s_id = int(sender_id)
+    except (ValueError, TypeError):
+        return False
+    if s_id <= 0:
+        return False
+    # 1. Master Bot Owner Avata (7299682335) has permanent Super Admin rights
+    if s_id == config.MASTER_BOT_OWNER_ID:
         return True
-    return sender_id in config.ADMIN_USER_IDS
+    # 2. Configured admin user IDs from environment
+    if config.ADMIN_USER_IDS and sender_id in config.ADMIN_USER_IDS:
+        return True
+    # 3. Database stored owner/admin role
+    role = db.get_user_role(sender_id, chat_id)
+    if role in ("owner", "admin"):
+        return True
+    return False
 
 
 async def get_user_group_role(client: TelegramClient, chat_id: int, user_id: int) -> str:
@@ -267,6 +288,10 @@ async def notify_owner_of_access_request(
         [
             Button.inline("✅ អនុញ្ញាត (Approve)", data=f"appr_{user_id}".encode()),
             Button.inline("❌ មិនអនុញ្ញាត (Not Approve)", data=f"deny_{user_id}".encode()),
+        ],
+        [
+            Button.inline(f"👥 គ្រប់គ្រងសមាជិក Group {chat_title[:12]}", data=f"mgm_grp_{chat_title[:20]}".encode()),
+            Button.inline("👑 Admin Panel", data=b"admin_panel")
         ]
     ]
 
@@ -276,6 +301,88 @@ async def notify_owner_of_access_request(
             logger.info(f"Forwarded access request for User {user_id} ({full_name}) from {chat_title} to Owner {admin_id}")
         except Exception as e:
             logger.warning(f"Could not send DM to Owner {admin_id}: {e}")
+
+
+def get_owner_reply_keyboard():
+    """Persistent keyboard docked at the bottom of the chat for Bot Owner (Avata)."""
+    return [
+        [
+            Button.text("👥 គ្រប់គ្រង Group", resize=True),
+            Button.text("📊 របាយការណ៍លក់", resize=True)
+        ],
+        [
+            Button.text("👑 Admin Panel", resize=True),
+            Button.text("ℹ️ ស្ថានភាព / Version", resize=True)
+        ]
+    ]
+
+
+def build_admin_panel():
+    """Constructs the Master Admin Control Panel for Bot Owner (Avata)."""
+    total_tx = db.get_transaction_count()
+    users_count = len(db.list_authorized_users())
+    groups = db.list_groups_summary()
+    uptime_str = get_cambodia_now().strftime("%Y-%m-%d %H:%M:%S")
+
+    text = (
+        "👑 <b>ផ្ទាំងបញ្ជាគ្រប់គ្រងមេ (Bot Owner Control Center)</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👑 <b>ម្ចាស់ Bot:</b> <b>AVATA 🇸🇸</b> (<code>{config.MASTER_BOT_OWNER_ID}</code>)\n"
+        f"🏷️ <b>Version:</b> <code>v{config.BOT_VERSION}</code> (Enterprise Edition)\n"
+        f"🛡️ <b>ប្រព័ន្ធសុវត្ថិភាព:</b> <code>Strict Bot Owner RBAC (Active)</code>\n"
+        f"📊 <b>ប្រតិបត្តិការក្នុង DB:</b> <code>{total_tx} លើក</code>\n"
+        f"👥 <b>បុគ្គលិកមានសិទ្ធិសរុប:</b> <code>{users_count} នាក់</code>\n"
+        f"🏢 <b>ចំនួន Group មានទិន្នន័យ:</b> <code>{len(groups)} Groups</code>\n"
+        f"⏰ <b>ម៉ោងប្រព័ន្ធបច្ចុប្បន្ន:</b> <code>{uptime_str}</code>\n\n"
+        "👇 <b>សូមចុចលើប៊ូតុងខាងក្រោមដើម្បីគ្រប់គ្រងការងារ៖</b>"
+    )
+    buttons = [
+        [
+            Button.inline("👥 គ្រប់គ្រងសមាជិកតាម Group", data=b"admin_groups"),
+            Button.inline("📊 មើលរបាយការណ៍លក់", data=b"btn_today"),
+        ],
+        [
+            Button.inline("📋 បញ្ជីបុគ្គលិកទាំងអស់", data=b"admin_all_users"),
+            Button.inline("🧹 Clear សិទ្ធិទាំងអស់", data=b"admin_confirm_clear"),
+        ],
+        [
+            Button.inline("ℹ️ ពិនិត្យ Status / Version", data=b"admin_status"),
+            Button.inline("🔄 Sync សារចាស់ៗ", data=b"admin_sync_menu"),
+        ],
+        [
+            Button.inline("❌ បិទផ្ទាំង (Close)", data=b"mgm_close")
+        ]
+    ]
+    return text, buttons
+
+
+def build_group_selector():
+    """Builds interactive group selection buttons for Bot Owner."""
+    summaries = db.list_groups_summary()
+    btn_rows = []
+    seen = set()
+
+    for s in summaries:
+        c_title = s.get("chat_title") or f"Group {s['chat_id']}"
+        seen.add(c_title.strip().lower())
+        cnt = s.get("member_count", 0)
+        btn_rows.append([Button.inline(f"👥 {c_title} ({cnt} នាក់)", data=f"mgm_grp_{c_title[:20]}".encode())])
+
+    # Always ensure Meeting cafe ☕ is available
+    if "meeting cafe ☕".lower() not in seen and "meeting cafe".lower() not in seen:
+        btn_rows.insert(0, [Button.inline("👥 Meeting cafe ☕", data=b"mgm_grp_Meeting cafe")])
+
+    btn_rows.append([
+        Button.inline("👑 ត្រឡប់ទៅ Admin Panel", data=b"admin_panel"),
+        Button.inline("❌ បិទ (Close)", data=b"mgm_close")
+    ])
+
+    text = (
+        "👑 <b>ផ្ទាំងគ្រប់គ្រងសមាជិកតាម Group (Bot Owner Panel)</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "សូមជ្រើសរើស Group ដែលលោកអ្នក (Avata) ចង់គ្រប់គ្រងសមាជិក៖"
+    )
+    return text, btn_rows
 
 
 def build_group_management_panel(group_query: str):
@@ -298,8 +405,14 @@ def build_group_management_panel(group_query: str):
             f"💡 <i>រាល់ពេលមានអ្នកចុចមើលរបាយការណ៍ នឹងមានសារ Alert មកកាន់ Avata ដើម្បី Approve។</i>"
         )
         buttons = [
-            [Button.inline("🔄 Refresh", data=f"mgm_grp_{title[:20]}".encode()),
-             Button.inline("❌ បិទ (Close)", data=b"mgm_close")]
+            [
+                Button.inline("🔄 Refresh", data=f"mgm_grp_{title[:20]}".encode()),
+                Button.inline("🔙 រើស Group ផ្សេង", data=b"admin_groups")
+            ],
+            [
+                Button.inline("👑 Admin Panel", data=b"admin_panel"),
+                Button.inline("❌ បិទ (Close)", data=b"mgm_close")
+            ]
         ]
         return text, buttons
 
@@ -330,6 +443,10 @@ def build_group_management_panel(group_query: str):
     lines.append("\n👇 <b>សូមចុចលើលេខរៀងខាងក្រោម ដើម្បីលុប ឬរក្សាទុកសិទ្ធិ៖</b>")
     num_buttons.append([
         Button.inline("🔄 Refresh", data=f"mgm_grp_{title[:20]}".encode()),
+        Button.inline("🔙 រើស Group ផ្សេង", data=b"admin_groups")
+    ])
+    num_buttons.append([
+        Button.inline("👑 Admin Panel", data=b"admin_panel"),
         Button.inline("❌ បិទ (Close)", data=b"mgm_close")
     ])
     return "\n".join(lines), num_buttons
@@ -499,6 +616,151 @@ def setup_handlers(client: TelegramClient):
                 await event.edit(text_panel, parse_mode="html", buttons=buttons_panel)
                 return
 
+        # Master Admin Control Panel Callbacks (Bot Owner Avata only)
+        if data == b"admin_panel":
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+            t, b = build_admin_panel()
+            await event.edit(t, parse_mode="html", buttons=b)
+            return
+
+        elif data == b"admin_groups":
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+            t, b = build_group_selector()
+            await event.edit(t, parse_mode="html", buttons=b)
+            return
+
+        elif data == b"admin_all_users":
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+            users = db.list_authorized_users()
+            lines = [
+                "📋 <b>បញ្ជីបុគ្គលិកមានសិទ្ធិទាំងអស់ក្នុងប្រព័ន្ធ:</b>",
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            ]
+            if not users:
+                lines.append("<i>មិនទាន់មានបុគ្គលិកណាមានសិទ្ធិឡើយ។</i>")
+            else:
+                for idx, u in enumerate(users, start=1):
+                    name = u.get("full_name") or u.get("username") or f"User {u['user_id']}"
+                    role = u.get("role", "staff").upper()
+                    g_title = u.get("chat_title") or "ទូទៅ"
+                    g_role = u.get("group_role") or "សមាជិក"
+                    lines.append(f"<b>{idx}.</b> 👤 <b>{name}</b> ({g_role}) — [<code>{u['user_id']}</code>]\n   └ 🏢 <i>{g_title}</i> | តួនាទី: <b>{role}</b>")
+
+            b = [
+                [Button.inline("🔙 ត្រឡប់ទៅ Admin Panel", data=b"admin_panel")],
+                [Button.inline("❌ បិទ (Close)", data=b"mgm_close")]
+            ]
+            await event.edit("\n".join(lines), parse_mode="html", buttons=b)
+            return
+
+        elif data == b"admin_confirm_clear":
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+            clear_text = (
+                "⚠️ <b>ការបញ្ជាក់៖ សម្អាត (Clear) សិទ្ធិបុគ្គលិកទាំងអស់</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "តើលោកអ្នក (Avata) ពិតជាចង់ Clear សិទ្ធិបុគ្គលិកទាំងអស់ចេញពីគ្រប់ Group មែនទេ?\n\n"
+                "🛡️ <i>ចំណាំ៖ ម្ចាស់ Bot (Avata ID: 7299682335) នៅតែរក្សាសិទ្ធិពេញលេញជានិច្ច។</i>"
+            )
+            b = [
+                [
+                    Button.inline("⚠️ បញ្ជាក់ការ Clear ទាំងអស់", data=b"admin_do_clear"),
+                    Button.inline("🔙 ថយក្រោយ", data=b"admin_panel")
+                ]
+            ]
+            await event.edit(clear_text, parse_mode="html", buttons=b)
+            return
+
+        elif data == b"admin_do_clear":
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+            del_cnt = db.clear_authorized_users(keep_admin_ids=[config.MASTER_BOT_OWNER_ID])
+            res_text = (
+                f"🧹 <b>បានសម្អាត (Clear) សិទ្ធិបុគ្គលិកចំនួន {del_cnt} នាក់ជោគជ័យ!</b>\n\n"
+                "👑 បច្ចុប្បន្នមានតែម្ចាស់ Bot (Avata) មួយគត់ដែលអាចចូលមើលរបាយការណ៍បាន។"
+            )
+            b = [
+                [Button.inline("🔙 ត្រឡប់ទៅ Admin Panel", data=b"admin_panel")]
+            ]
+            await event.edit(res_text, parse_mode="html", buttons=b)
+            await event.answer("🧹 Clear សិទ្ធិជោគជ័យ!")
+            return
+
+        elif data == b"admin_status":
+            uptime_str = get_cambodia_now().strftime("%Y-%m-%d %H:%M:%S")
+            total_tx = db.get_transaction_count()
+            users_count = len(db.list_authorized_users())
+            status_text = (
+                f"🤖 <b>ប្រព័ន្ធ KHQR Daily Report Bot</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🏷️ <b>Version:</b> <code>v{config.BOT_VERSION}</code> (Enterprise Edition)\n"
+                f"👑 <b>Bot Owner:</b> <code>AVATA 🇸🇸 (ID: {config.MASTER_BOT_OWNER_ID})</code>\n"
+                f"🛡️ <b>ប្រព័ន្ធសុវត្ថិភាព:</b> <code>Strict Bot Owner RBAC (Active)</code>\n"
+                f"📊 <b>ប្រតិបត្តិការសរុបក្នុង DB:</b> <code>{total_tx} លើក</code>\n"
+                f"👥 <b>បុគ្គលិកមានសិទ្ធិ:</b> <code>{users_count} នាក់</code>\n"
+                f"⏰ <b>ម៉ោងបច្ចុប្បន្ន:</b> <code>{uptime_str}</code>\n\n"
+                f"✅ <i>ប្រព័ន្ធកំពុងដំណើរការកំណែចុងក្រោយបំផុតដោយជោគជ័យ។</i>"
+            )
+            b = [
+                [Button.inline("🔙 ត្រឡប់ទៅ Admin Panel", data=b"admin_panel")],
+                [Button.inline("❌ បិទ (Close)", data=b"mgm_close")]
+            ]
+            await event.edit(status_text, parse_mode="html", buttons=b)
+            return
+
+        elif data == b"admin_sync_menu":
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+            s_text = (
+                "🔄 <b>ទាញយកសារចាស់ៗក្នុង Group (Auto History Sync)</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "សូមជ្រើសរើសចំនួនសារចាស់ៗដែលចង់ឱ្យ Bot ពិនិត្យរកប្រតិបត្តិការទូទាត់ KHQR៖"
+            )
+            b = [
+                [
+                    Button.inline("🔄 Sync 100 សារ", data=b"admin_do_sync_100"),
+                    Button.inline("🔄 Sync 200 សារ", data=b"admin_do_sync_200"),
+                ],
+                [
+                    Button.inline("🔙 ត្រឡប់ទៅ Admin Panel", data=b"admin_panel")
+                ]
+            ]
+            await event.edit(s_text, parse_mode="html", buttons=b)
+            return
+
+        elif data in (b"admin_do_sync_100", b"admin_do_sync_200"):
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+            limit_val = 100 if data == b"admin_do_sync_100" else 200
+            await event.edit(f"⏳ <b>កំពុងដំណើរការ Sync ទាញយកសារចាស់ៗចំនួន {limit_val} សារ... សូមរង់ចាំបន្តិច</b>", parse_mode="html")
+            from sync_history import sync_previous_messages
+            target_chat = config.MONITOR_CHAT_ID or event.chat_id
+            res = await sync_previous_messages(client, target_chat, limit=limit_val)
+            if res and not res.get("bot_restricted"):
+                rep_t = (
+                    "✅ <b>ការ Sync ទិន្នន័យចាស់ៗជោគជ័យ:</b>\n\n"
+                    f"• សារបានពិនិត្យ: <b>{res['total_scanned']}</b>\n"
+                    f"• ប្រតិបត្តិការថ្មី: <b>{res['new_added']}</b>\n"
+                    f"• ទឹកប្រាក់ថ្មី: <b>${res['usd_total']:,.2f}</b> | <b>{int(res['khr_total']):,} ៛</b>"
+                )
+            else:
+                rep_t = "👌 បានបញ្ចប់ការត្រួតពិនិត្យសារចាស់ៗក្នុង Group រួចរាល់។"
+            b = [
+                [Button.inline("🔙 ត្រឡប់ទៅ Admin Panel", data=b"admin_panel")]
+            ]
+            await event.edit(rep_t, parse_mode="html", buttons=b)
+            return
+
         # Check permission for report inline buttons
         if not check_permission(sender_id, event.chat_id):
             if sender_id is not None and sender_id > 0:
@@ -610,7 +872,39 @@ def setup_handlers(client: TelegramClient):
 
         # Handle Commands
         text_stripped = text.strip()
-        cmd = text_stripped.split()[0].lower() if text_stripped else ""
+        # Determine admin privileges
+        is_owner_user = is_admin(event.sender_id, chat_id)
+
+        # Persistent Keyboard clicks & Quick Admin Triggers for Bot Owner Avata
+        if is_owner_user:
+            if "គ្រប់គ្រង group" in text_stripped.lower() or text_stripped in ("👥 គ្រប់គ្រង Group", "👥 គ្រប់គ្រង group"):
+                text_panel, btns = build_group_selector()
+                await event.reply(text_panel, parse_mode="html", buttons=btns)
+                return
+
+            if "admin panel" in text_stripped.lower() or cmd in ("/admin", ".admin", "/panel", ".panel"):
+                text_panel, btns = build_admin_panel()
+                await event.reply(text_panel, parse_mode="html", buttons=btns)
+                return
+
+        if "របាយការណ៍" in text_stripped.lower() or text_stripped in ("📊 របាយការណ៍លក់", "📊 របាយការណ៍"):
+            cmd = "/today"
+
+        if "ស្ថានភាព / version" in text_stripped.lower() or text_stripped in ("ℹ️ ស្ថានភាព / Version", "ℹ️ ស្ថានភាព / version"):
+            cmd = "/version"
+
+        # 0. Start command in private chat: Welcome Bot Owner with full dashboard and buttons
+        if cmd in ("/start", ".start") and event.is_private:
+            if is_owner_user:
+                panel_text, panel_btns = build_admin_panel()
+                welcome_msg = (
+                    "👋 <b>ជំរាបសួរលោកអ្នក (AVATA 🇸🇸) ជាម្ចាស់ Bot!</b>\n\n"
+                    "ប្រព័ន្ធបានរៀបចំប៊ូតុង និងផ្ទាំងគ្រប់គ្រងការងាររួចរាល់សម្រាប់លោកអ្នក។\n"
+                    "👇 <i>សូមចុចប៊ូតុងខាងក្រោម ឬប្រើប្រាស់ផ្ទាំងគ្រប់គ្រង៖</i>"
+                )
+                await event.reply(welcome_msg, parse_mode="html", buttons=get_owner_reply_keyboard())
+                await event.reply(panel_text, parse_mode="html", buttons=panel_btns)
+                return
 
         # 1. Identity command: Check Telegram ID (Publicly accessible)
         if cmd in ("/myid", ".myid", "/id", ".id"):
@@ -768,26 +1062,9 @@ def setup_handlers(client: TelegramClient):
             group_query = parts[1].strip() if len(parts) > 1 else ""
 
             if not group_query:
-                # Check summary of groups in database
-                summaries = db.list_groups_summary()
-                if len(summaries) == 1:
-                    group_query = summaries[0].get("chat_title") or "Meeting cafe ☕"
-                elif len(summaries) > 1:
-                    btn_rows = []
-                    for s in summaries:
-                        c_title = s.get("chat_title") or f"Group {s['chat_id']}"
-                        cnt = s.get("member_count", 0)
-                        btn_rows.append([Button.inline(f"👥 {c_title} ({cnt} នាក់)", data=f"mgm_grp_{c_title[:20]}".encode())])
-                    btn_rows.append([Button.inline("❌ បិទ (Close)", data=b"mgm_close")])
-                    await event.reply(
-                        "👑 <b>ផ្ទាំងគ្រប់គ្រងសមាជិកតាម Group (Bot Owner Panel)</b>\n\n"
-                        "សូមជ្រើសរើស Group ដែលលោកអ្នកចង់គ្រប់គ្រងសមាជិក៖",
-                        parse_mode="html",
-                        buttons=btn_rows
-                    )
-                    return
-                else:
-                    group_query = "Meeting cafe ☕"
+                text_panel, btns = build_group_selector()
+                await event.reply(text_panel, parse_mode="html", buttons=btns)
+                return
 
             text_panel, btns = build_group_management_panel(group_query)
             await event.reply(text_panel, parse_mode="html", buttons=btns)
@@ -1084,8 +1361,17 @@ async def start_bot():
                 f"👥 <b>ចំនួនបុគ្គលិកមានសិទ្ធិ:</b> <code>{users_count} នាក់</code>\n\n"
                 f"✅ <i>រាល់មុខងារថ្មីៗ និងការការពារសុវត្ថិភាពត្រូវបាន Update ពេញលេញ។</i>"
             )
-            await client.send_message(config.ADMIN_USER_ID, startup_msg, parse_mode="html")
-            logger.info("Sent startup version notification to Bot Owner.")
+            # Send message with persistent keyboard docked at bottom of chat
+            await client.send_message(
+                config.ADMIN_USER_ID, 
+                startup_msg, 
+                parse_mode="html", 
+                buttons=get_owner_reply_keyboard()
+            )
+            # Also send interactive Master Admin Control Center
+            panel_text, panel_btns = build_admin_panel()
+            await client.send_message(config.ADMIN_USER_ID, panel_text, parse_mode="html", buttons=panel_btns)
+            logger.info("Sent startup version notification and Admin Panel to Bot Owner.")
     except Exception as e:
         logger.debug(f"Could not send startup notification: {e}")
 

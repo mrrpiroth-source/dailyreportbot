@@ -46,13 +46,20 @@ ENABLE_INSTANT_ALERT = os.getenv("ENABLE_INSTANT_ALERT", "false").lower() in ("t
 SYNC_ON_STARTUP = os.getenv("SYNC_ON_STARTUP", "true").lower() in ("true", "1", "yes")
 SYNC_LIMIT = int(os.getenv("SYNC_LIMIT", "200"))
 
+# Master Bot Owner (Avata) Telegram ID (Permanent Super Admin)
+MASTER_BOT_OWNER_ID = 7299682335
+ADMIN_USER_ID = MASTER_BOT_OWNER_ID
+
 # Security: Admin User IDs (Owner / Managers who have full permission)
-# E.g. "12345678,87654321"
+# E.g. "7299682335,87654321"
 ADMIN_USER_IDS = [
     int(x.strip()) 
-    for x in os.getenv("ADMIN_USER_IDS", "").split(",") 
+    for x in os.getenv("ADMIN_USER_IDS", str(MASTER_BOT_OWNER_ID)).split(",") 
     if x.strip().lstrip("-").isdigit()
 ]
+# Ensure master Bot Owner (Avata 7299682335) is ALWAYS an admin regardless of environment variable settings
+if MASTER_BOT_OWNER_ID not in ADMIN_USER_IDS:
+    ADMIN_USER_IDS.append(MASTER_BOT_OWNER_ID)
 
 # When True, only Admin and authorized staff can view reports & run commands
 RESTRICT_REPORTS_TO_ADMIN = os.getenv("RESTRICT_REPORTS_TO_ADMIN", "true").lower() in ("true", "1", "yes")
@@ -61,7 +68,7 @@ RESTRICT_REPORTS_TO_ADMIN = os.getenv("RESTRICT_REPORTS_TO_ADMIN", "true").lower
 DB_PATH = os.getenv("DB_PATH", "khqr_reports.db")
 
 # Bot Application Version
-BOT_VERSION = "2.2.0"
+BOT_VERSION = "2.3.0"
 
 # Optional Render Deploy Hook for automatic deployment on push
 RENDER_DEPLOY_HOOK = os.getenv("RENDER_DEPLOY_HOOK", "")

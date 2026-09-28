@@ -521,6 +521,20 @@ class Database:
         finally:
             conn.close()
 
+    def get_user_role(self, user_id: int, chat_id: Optional[int] = None) -> Optional[str]:
+        """Returns role ('owner', 'admin', 'staff') of a user if authorized, else None."""
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            if chat_id is not None and chat_id != 0:
+                cursor.execute("SELECT role FROM authorized_users WHERE user_id = ? AND (chat_id = ? OR chat_id = 0) ORDER BY id ASC LIMIT 1", (user_id, chat_id))
+            else:
+                cursor.execute("SELECT role FROM authorized_users WHERE user_id = ? ORDER BY id ASC LIMIT 1", (user_id,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+
     def list_authorized_users(self, chat_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """Returns all authorized users, optionally filtered by group chat_id."""
         conn = self.get_connection()
