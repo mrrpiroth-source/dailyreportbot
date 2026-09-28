@@ -173,16 +173,32 @@ def is_admin(sender_id: Optional[int], chat_id: Optional[int] = None) -> bool:
     return sender_id in config.ADMIN_USER_IDS
 
 
+async def get_user_group_role(client: TelegramClient, chat_id: int, user_id: int) -> str:
+    """Determines whether a user is the owner, admin, or regular member in that group."""
+    try:
+        perms = await client.get_permissions(chat_id, user_id)
+        if perms.is_creator:
+            return "owner"
+        elif perms.is_admin:
+            return "admin"
+        else:
+            return "សមាជិក"
+    except Exception:
+        return "សមាជិក"
+
+
 async def notify_owner_of_access_request(
     client: TelegramClient,
     user_id: int,
     chat_id: int,
     user_entity: Optional[Any] = None,
-    source: str = "command"
+    source: str = "command",
+    group_role: Optional[str] = None
 ):
     """
     Sends an immediate direct message to Bot Owner(s) when an unauthorized member
     requests access or attempts to view reports, with 1-click [Approve] / [Deny] buttons.
+    Organized strictly by group with user's role confirmation (owner, admin, or member).
     """
     now = time.time()
     # Debounce: don't spam owner if clicked repeatedly within 30 seconds
@@ -190,6 +206,10 @@ async def notify_owner_of_access_request(
         return
 
     last_request_time[user_id] = now
+
+    # Determine user's role in the group if not already provided
+    if not group_role:
+        group_role = await get_user_group_role(client, chat_id, user_id)
 
     # Extract user details robustly
     full_name = "User"
@@ -221,13 +241,14 @@ async def notify_owner_of_access_request(
     except Exception:
         pass
 
-    # Save to memory cache
+    # Save to memory cache organized by group and role
     pending_requests[user_id] = {
         "user_id": user_id,
         "full_name": full_name,
         "username": username_str,
         "chat_id": chat_id,
         "chat_title": chat_title,
+        "group_role": group_role,
     }
 
     current_time_str = get_cambodia_now().strftime("%Y-%m-%d %H:%M:%S")
@@ -235,11 +256,11 @@ async def notify_owner_of_access_request(
     alert_msg = (
         "🔔 <b>មានសំណើសុំសិទ្ធិមើលរបាយការណ៍ហិរញ្ញវត្ថុថ្មី!</b>\n\n"
         f"👥 <b>មកពី Group:</b> {chat_title}\n"
-        f"👤 <b>ឈ្មោះ:</b> {full_name}\n"
+        f"👤 <b>ឈ្មោះ:</b> {full_name} ({group_role})\n"
         f"🏷️ <b>Username:</b> {username_str}\n"
         f"🔢 <b>Telegram User ID:</b> <code>{user_id}</code>\n"
         f"⏰ <b>ម៉ោង:</b> {current_time_str}\n\n"
-        "👉 <i>តើលោកអ្នកយល់ព្រមអនុញ្ញាតឱ្យបុគ្គលិកនេះមើលរបាយការណ៍លក់ដែរឬទេ?</i>"
+        "👉 <i>តើលោកអ្នក (Avata) យល់ព្រមអនុញ្ញាតឱ្យគណនីនេះមើលរបាយការណ៍លក់ក្នុង Group នេះដែរឬទេ?</i>"
     )
 
     approval_buttons = [
@@ -252,9 +273,66 @@ async def notify_owner_of_access_request(
     for admin_id in config.ADMIN_USER_IDS:
         try:
             await client.send_message(admin_id, alert_msg, parse_mode="html", buttons=approval_buttons)
-            logger.info(f"Forwarded access request for User {user_id} ({full_name}) to Owner {admin_id}")
+            logger.info(f"Forwarded access request for User {user_id} ({full_name}) from {chat_title} to Owner {admin_id}")
         except Exception as e:
             logger.warning(f"Could not send DM to Owner {admin_id}: {e}")
+
+
+def build_group_management_panel(group_query: str):
+    """
+    Constructs an interactive group member management view with numbered list and numbered buttons.
+    Exclusively used by Bot Owner (Avata).
+    """
+    members = db.list_authorized_users_by_group(group_query)
+    title = group_query or "Meeting cafe ☕"
+    chat_id_val = 0
+    if members:
+        title = members[0].get("chat_title") or title
+        chat_id_val = members[0].get("chat_id", 0)
+
+    if not members:
+        text = (
+            f"👥 <b>ផ្ទាំងគ្រប់គ្រង Group:</b> <code>{title}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"<i>មិនទាន់មានសមាជិកណាត្រូវបានអនុញ្ញាតក្នុង Group នេះនៅឡើយទេ។</i>\n\n"
+            f"💡 <i>រាល់ពេលមានអ្នកចុចមើលរបាយការណ៍ នឹងមានសារ Alert មកកាន់ Avata ដើម្បី Approve។</i>"
+        )
+        buttons = [
+            [Button.inline("🔄 Refresh", data=f"mgm_grp_{title[:20]}".encode()),
+             Button.inline("❌ បិទ (Close)", data=b"mgm_close")]
+        ]
+        return text, buttons
+
+    lines = [
+        f"👥 <b>បញ្ជីសមាជិកមានសិទ្ធិក្នុង Group:</b> <code>{title}</code>",
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    ]
+
+    num_buttons = []
+    current_row = []
+
+    for idx, m in enumerate(members, start=1):
+        name = m.get("full_name") or m.get("username") or f"User {m['user_id']}"
+        g_role = m.get("group_role") or "សមាជិក"
+        uname = f"@{m['username']} " if m.get("username") else ""
+        c_id = m.get("chat_id") or chat_id_val
+        lines.append(f"<b>{idx}.</b> <b>{name}</b> ({g_role}) — {uname}[<code>{m['user_id']}</code>]")
+
+        btn_data = f"mgm_pick_{c_id}_{m['user_id']}".encode()
+        current_row.append(Button.inline(f" {idx} ", data=btn_data))
+        if len(current_row) == 5:
+            num_buttons.append(current_row)
+            current_row = []
+
+    if current_row:
+        num_buttons.append(current_row)
+
+    lines.append("\n👇 <b>សូមចុចលើលេខរៀងខាងក្រោម ដើម្បីលុប ឬរក្សាទុកសិទ្ធិ៖</b>")
+    num_buttons.append([
+        Button.inline("🔄 Refresh", data=f"mgm_grp_{title[:20]}".encode()),
+        Button.inline("❌ បិទ (Close)", data=b"mgm_close")
+    ])
+    return "\n".join(lines), num_buttons
 
 
 def setup_handlers(client: TelegramClient):
@@ -286,24 +364,31 @@ def setup_handlers(client: TelegramClient):
             target_uname = req_info.get("username")
             if target_uname and target_uname.startswith("@"):
                 target_uname = target_uname[1:]
+            chat_id = req_info.get("chat_id") or config.MONITOR_CHAT_ID or 0
+            chat_title = req_info.get("chat_title") or "Meeting cafe ☕"
+            group_role = req_info.get("group_role") or "សមាជិក"
 
-            # Add to authorized database
+            # Add to authorized database per group
             db.add_authorized_user(
                 user_id=target_id,
                 username=target_uname,
                 full_name=target_name,
                 role="staff",
+                chat_id=chat_id,
+                chat_title=chat_title,
+                group_role=group_role,
                 added_by=sender_id
             )
 
             now_str = get_cambodia_now().strftime("%Y-%m-%d %H:%M:%S")
             approved_text = (
                 "✅ <b>បានអនុញ្ញាតសិទ្ធិដោយជោគជ័យ! (Approved)</b>\n\n"
-                f"👤 បុគ្គលិក: <b>{target_name}</b> (<code>{target_id}</code>)\n"
+                f"👥 Group: <b>{chat_title}</b>\n"
+                f"👤 បុគ្គលិក: <b>{target_name} ({group_role})</b> (<code>{target_id}</code>)\n"
                 f"🛡️ តួនាទី: <b>STAFF (បុគ្គលិកមានសិទ្ធិ)</b>\n"
                 f"⏰ ម៉ោងអនុម័ត: <b>{now_str}</b>\n"
                 f"👑 អនុម័តដោយម្ចាស់ Bot: <b>AVATA 🇸🇸</b>\n\n"
-                "<i>បុគ្គលិកនេះអាចមើលរបាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូលបានហើយ។</i>"
+                f"<i>បុគ្គលិកនេះអាចមើលរបាយការណ៍ហិរញ្ញវត្ថុក្នុង Group {chat_title} បានហើយ។</i>"
             )
             await event.edit(approved_text, parse_mode="html")
             await event.answer("✅ បានអនុម័តជោគជ័យ (Approved)!")
@@ -315,7 +400,7 @@ def setup_handlers(client: TelegramClient):
                     await client.send_message(
                         notify_chat,
                         f"🎉 <b>ការស្នើសុំសិទ្ធិត្រូវបានអនុម័ត! (Approved)</b>\n\n"
-                        f"👤 <b>{target_name}</b> ត្រូវបានម្ចាស់ Bot (Avata) អនុញ្ញាតឱ្យមើលរបាយការណ៍ហិរញ្ញវត្ថុក្នុង Group នេះបានហើយ។\n\n"
+                        f"👤 <b>{target_name} ({group_role})</b> ត្រូវបានម្ចាស់ Bot (Avata) អនុញ្ញាតឱ្យមើលរបាយការណ៍ហិរញ្ញវត្ថុក្នុង Group នេះបានហើយ។\n\n"
                         f"👉 លោកអ្នកអាចចុច <code>/today</code> ឬប៊ូតុងខាងក្រោមដើម្បីពិនិត្យការលក់:",
                         parse_mode="html",
                         buttons=get_menu_buttons()
@@ -341,6 +426,79 @@ def setup_handlers(client: TelegramClient):
             await event.answer("❌ មិនអនុញ្ញាត (Not Approved)!")
             return
 
+        # Handle Group Member Management Callbacks (Avata Bot Owner only)
+        elif data.startswith(b"mgm_"):
+            if not is_admin(sender_id, event.chat_id):
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                return
+
+            if data == b"mgm_close":
+                await event.delete()
+                return
+
+            elif data.startswith(b"mgm_grp_"):
+                grp_q = data[8:].decode("utf-8", errors="ignore")
+                text_panel, buttons_panel = build_group_management_panel(grp_q)
+                await event.edit(text_panel, parse_mode="html", buttons=buttons_panel)
+                return
+
+            elif data.startswith(b"mgm_pick_"):
+                parts = data.decode("utf-8").split("_")
+                if len(parts) >= 4:
+                    c_id = int(parts[2])
+                    u_id = int(parts[3])
+                    u_info = db.get_authorized_user_by_id(u_id, c_id)
+                    if not u_info:
+                        await event.answer("⚠️ រកមិនឃើញគណនីនេះក្នុងបញ្ជីឡើយ!", alert=True)
+                        return
+
+                    u_name = u_info.get("full_name") or f"User {u_id}"
+                    g_role = u_info.get("group_role") or "សមាជិក"
+                    c_title = u_info.get("chat_title") or f"Group {c_id}"
+                    uname = f"@{u_info['username']}" if u_info.get("username") else "គ្មាន Username"
+
+                    confirm_text = (
+                        "⚠️ <b>បញ្ជាក់ការគ្រប់គ្រងសិទ្ធិ (Permission Action)</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"👥 <b>Group:</b> {c_title}\n"
+                        f"👤 <b>ឈ្មោះគណនី:</b> <b>{u_name} ({g_role})</b>\n"
+                        f"🏷️ <b>Username:</b> {uname}\n"
+                        f"🔢 <b>Telegram User ID:</b> <code>{u_id}</code>\n\n"
+                        "👉 <i>តើលោកអ្នក (Avata) ចង់ «លុបសិទ្ធិ» ឬ «រក្សាទុក» គណនីនេះ?</i>"
+                    )
+                    confirm_buttons = [
+                        [
+                            Button.inline("🗑️ លុប (Delete)", data=f"mgm_del_{c_id}_{u_id}".encode()),
+                            Button.inline("💾 រក្សាទុក (Keep)", data=f"mgm_keep_{c_title[:20]}".encode()),
+                        ]
+                    ]
+                    await event.edit(confirm_text, parse_mode="html", buttons=confirm_buttons)
+                    return
+
+            elif data.startswith(b"mgm_del_"):
+                parts = data.decode("utf-8").split("_")
+                if len(parts) >= 4:
+                    c_id = int(parts[2])
+                    u_id = int(parts[3])
+                    u_info = db.get_authorized_user_by_id(u_id, c_id)
+                    u_name = (u_info.get("full_name") if u_info else "") or f"ID {u_id}"
+                    c_title = (u_info.get("chat_title") if u_info else "") or "Meeting cafe ☕"
+
+                    db.remove_authorized_user(u_id, c_id)
+                    await event.answer(f"🗑️ បានលុបសិទ្ធិរបស់ {u_name} រួចរាល់!", alert=True)
+
+                    # Return to updated numbered list
+                    text_panel, buttons_panel = build_group_management_panel(c_title)
+                    await event.edit(text_panel, parse_mode="html", buttons=buttons_panel)
+                    return
+
+            elif data.startswith(b"mgm_keep_"):
+                c_title = data[9:].decode("utf-8", errors="ignore")
+                await event.answer("👌 បានរក្សាទុកសិទ្ធិដដែល", alert=False)
+                text_panel, buttons_panel = build_group_management_panel(c_title)
+                await event.edit(text_panel, parse_mode="html", buttons=buttons_panel)
+                return
+
         # Check permission for report inline buttons
         if not check_permission(sender_id, event.chat_id):
             if sender_id is not None and sender_id > 0:
@@ -348,16 +506,21 @@ def setup_handlers(client: TelegramClient):
                 first = getattr(sender_ent, "first_name", "") or ""
                 last = getattr(sender_ent, "last_name", "") or ""
                 fname = f"{first} {last}".strip() or f"User {sender_id}"
+                
+                # Determine requester's role in the group
+                g_role = await get_user_group_role(client, event.chat_id, sender_id)
+
                 await notify_owner_of_access_request(
                     client=client,
                     user_id=sender_id,
                     chat_id=event.chat_id,
                     user_entity=sender_ent,
-                    source="button"
+                    source="button",
+                    group_role=g_role
                 )
                 await event.answer(
                     f"⛔ គ្មានសិទ្ធិមើលរបាយការណ៍!\n"
-                    f"👤 ឈ្មោះ: {fname} (ID: {sender_id})\n"
+                    f"👤 ឈ្មោះ: {fname} ({g_role}) [ID: {sender_id}]\n"
                     f"📩 បានបញ្ជូនឈ្មោះ និង ID ទៅម្ចាស់ Bot (Avata) ដើម្បីសុំ Approve រួចហើយ!",
                     alert=True
                 )
@@ -575,6 +738,41 @@ def setup_handlers(client: TelegramClient):
             )
             return
 
+        # 4c. RBAC Group Member Management: /manage or /group or /members (Bot Owner Avata only)
+        if cmd.startswith(("/manage", ".manage", "/group", ".group", "/members", ".members")):
+            if not is_admin(event.sender_id):
+                await event.reply("⛔ មុខងារគ្រប់គ្រងសមាជិកនេះ សម្រាប់តែម្ចាស់ Bot (Avata) តែប៉ុណ្ណោះ!", parse_mode="html")
+                return
+
+            parts = text_stripped.split(maxsplit=1)
+            group_query = parts[1].strip() if len(parts) > 1 else ""
+
+            if not group_query:
+                # Check summary of groups in database
+                summaries = db.list_groups_summary()
+                if len(summaries) == 1:
+                    group_query = summaries[0].get("chat_title") or "Meeting cafe ☕"
+                elif len(summaries) > 1:
+                    btn_rows = []
+                    for s in summaries:
+                        c_title = s.get("chat_title") or f"Group {s['chat_id']}"
+                        cnt = s.get("member_count", 0)
+                        btn_rows.append([Button.inline(f"👥 {c_title} ({cnt} នាក់)", data=f"mgm_grp_{c_title[:20]}".encode())])
+                    btn_rows.append([Button.inline("❌ បិទ (Close)", data=b"mgm_close")])
+                    await event.reply(
+                        "👑 <b>ផ្ទាំងគ្រប់គ្រងសមាជិកតាម Group (Bot Owner Panel)</b>\n\n"
+                        "សូមជ្រើសរើស Group ដែលលោកអ្នកចង់គ្រប់គ្រងសមាជិក៖",
+                        parse_mode="html",
+                        buttons=btn_rows
+                    )
+                    return
+                else:
+                    group_query = "Meeting cafe ☕"
+
+            text_panel, btns = build_group_management_panel(group_query)
+            await event.reply(text_panel, parse_mode="html", buttons=btns)
+            return
+
         # 5. Permission Gate: Protect financial report commands
         report_cmd_prefixes = (
             "/today", ".today", "បូកសរុបថ្ងៃនេះ",
@@ -595,18 +793,23 @@ def setup_handlers(client: TelegramClient):
                     fname = f"{first} {last}".strip() or f"User {event.sender_id}"
                     uname_val = getattr(sender, "username", None)
                     uname_str = f" (@{uname_val})" if uname_val else ""
+
+                    # Determine requester's role in the group (owner, admin, or member)
+                    g_role = await get_user_group_role(client, chat_id, event.sender_id)
+
                     await notify_owner_of_access_request(
                         client=client,
                         user_id=event.sender_id,
                         chat_id=chat_id,
                         user_entity=sender,
-                        source="command"
+                        source="command",
+                        group_role=g_role
                     )
                     await event.reply(
                         "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Access Denied)</b>\n\n"
                         "🔒 <b>របាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូល ត្រូវបានការពារដោយសុវត្ថិភាពខ្ពស់។</b>\n"
                         "<i>(ទោះបីជា Owner ឬ Admin របស់ Group ក៏ត្រូវតែទទួលបានការអនុញ្ញាតពីម្ចាស់ Bot ជាមុនសិនដែរ)</i>\n\n"
-                        f"👤 <b>ឈ្មោះ:</b> {fname}{uname_str}\n"
+                        f"👤 <b>ឈ្មោះ:</b> {fname} ({g_role}){uname_str}\n"
                         f"🔢 <b>Telegram User ID:</b> <code>{event.sender_id}</code>\n\n"
                         "📩 <b>ប្រព័ន្ធបានចាប់យកឈ្មោះ និង Telegram ID របស់អ្នកបញ្ជូនទៅម្ចាស់ Bot (Avata) រួចរាល់ហើយ!</b>\n"
                         "💡 <i>សូមរង់ចាំម្ចាស់ Bot ចុចយល់ព្រម (Approve) មួយភ្លែត។</i>",

@@ -66,17 +66,35 @@ class Database:
                     ON transactions(transaction_time);
                 """)
 
-                # Authorized Users table for high-security Role-Based Access Control (RBAC)
+                # Authorized Users table for high-security Role-Based Access Control (RBAC) organized by Group
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS authorized_users (
-                        user_id INTEGER PRIMARY KEY,
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
                         username TEXT,
                         full_name TEXT,
                         role TEXT DEFAULT 'staff', -- 'owner', 'admin', 'staff'
+                        chat_id INTEGER DEFAULT 0,
+                        chat_title TEXT DEFAULT '',
+                        group_role TEXT DEFAULT 'សមាជិក', -- 'owner', 'admin', 'សមាជិក'
                         added_by INTEGER,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, chat_id)
                     );
                 """)
+                # Seamless migrations for existing tables
+                for col_sql in [
+                    "ALTER TABLE authorized_users ADD COLUMN chat_id INTEGER DEFAULT 0;",
+                    "ALTER TABLE authorized_users ADD COLUMN chat_title TEXT DEFAULT '';",
+                    "ALTER TABLE authorized_users ADD COLUMN group_role TEXT DEFAULT 'សមាជិក';"
+                ]:
+                    try:
+                        cursor.execute(col_sql)
+                    except Exception:
+                        pass
+
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_chat_id ON authorized_users(chat_id);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_chat_title ON authorized_users(chat_title);")
         finally:
             conn.close()
 
@@ -446,77 +464,173 @@ class Database:
         username: Optional[str] = None,
         full_name: Optional[str] = None,
         role: str = "staff",
+        chat_id: int = 0,
+        chat_title: str = "",
+        group_role: str = "សមាជិក",
         added_by: Optional[int] = None
     ) -> bool:
-        """Adds or updates an authorized user."""
+        """Adds or updates an authorized user for a specific group."""
         conn = self.get_connection()
         try:
             with conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT INTO authorized_users (user_id, username, full_name, role, added_by)
-                    VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(user_id) DO UPDATE SET
+                    INSERT INTO authorized_users (user_id, username, full_name, role, chat_id, chat_title, group_role, added_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, chat_id) DO UPDATE SET
                         username = excluded.username,
                         full_name = excluded.full_name,
-                        role = excluded.role;
-                """, (user_id, username, full_name, role, added_by))
+                        role = excluded.role,
+                        chat_title = excluded.chat_title,
+                        group_role = excluded.group_role;
+                """, (user_id, username, full_name, role, chat_id, chat_title, group_role, added_by))
                 return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to add authorized user: {e}")
             return False
         finally:
             conn.close()
 
-    def remove_authorized_user(self, user_id: int) -> bool:
-        """Revokes access for a user."""
+    def remove_authorized_user(self, user_id: int, chat_id: Optional[int] = None) -> bool:
+        """Revokes access for a user in a specific group or across all groups."""
         conn = self.get_connection()
         try:
             with conn:
                 cursor = conn.cursor()
-                cursor.execute("DELETE FROM authorized_users WHERE user_id = ?", (user_id,))
+                if chat_id is not None and chat_id != 0:
+                    cursor.execute("DELETE FROM authorized_users WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
+                else:
+                    cursor.execute("DELETE FROM authorized_users WHERE user_id = ?", (user_id,))
                 return cursor.rowcount > 0
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to remove authorized user: {e}")
             return False
         finally:
             conn.close()
 
-    def is_user_authorized(self, user_id: int) -> bool:
-        """Checks if a user is permitted to use the bot and view reports."""
+    def is_user_authorized(self, user_id: int, chat_id: Optional[int] = None) -> bool:
+        """Checks if a user is permitted to use the bot in a group."""
         conn = self.get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT 1 FROM authorized_users WHERE user_id = ?", (user_id,))
+            if chat_id is not None and chat_id != 0:
+                cursor.execute("SELECT 1 FROM authorized_users WHERE user_id = ? AND (chat_id = ? OR chat_id = 0)", (user_id, chat_id))
+            else:
+                cursor.execute("SELECT 1 FROM authorized_users WHERE user_id = ?", (user_id,))
             return cursor.fetchone() is not None
         finally:
             conn.close()
 
-    def list_authorized_users(self) -> List[Dict[str, Any]]:
-        """Returns all authorized users."""
+    def list_authorized_users(self, chat_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Returns all authorized users, optionally filtered by group chat_id."""
         conn = self.get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT user_id, username, full_name, role, created_at FROM authorized_users ORDER BY role DESC, created_at ASC")
+            if chat_id is not None and chat_id != 0:
+                cursor.execute(
+                    "SELECT id, user_id, username, full_name, role, chat_id, chat_title, group_role, created_at "
+                    "FROM authorized_users WHERE chat_id = ? ORDER BY id ASC", (chat_id,)
+                )
+            else:
+                cursor.execute(
+                    "SELECT id, user_id, username, full_name, role, chat_id, chat_title, group_role, created_at "
+                    "FROM authorized_users ORDER BY chat_title ASC, id ASC"
+                )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         finally:
             conn.close()
 
-    def clear_authorized_users(self, keep_admin_ids: Optional[List[int]] = None) -> int:
-        """Clears authorized users from database, optionally keeping master bot owners."""
+    def list_authorized_users_by_group(self, group_query: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Returns authorized users for a specific group searched by chat_id or chat_title (e.g. 'Meeting cafe ☕').
+        """
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            if group_query:
+                clean_q = str(group_query).strip()
+                if clean_q.lstrip("-").isdigit():
+                    cursor.execute(
+                        "SELECT id, user_id, username, full_name, role, chat_id, chat_title, group_role, created_at "
+                        "FROM authorized_users WHERE chat_id = ? ORDER BY id ASC", (int(clean_q),)
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT id, user_id, username, full_name, role, chat_id, chat_title, group_role, created_at "
+                        "FROM authorized_users WHERE LOWER(chat_title) LIKE ? ORDER BY id ASC",
+                        (f"%{clean_q.lower()}%",)
+                    )
+            else:
+                cursor.execute(
+                    "SELECT id, user_id, username, full_name, role, chat_id, chat_title, group_role, created_at "
+                    "FROM authorized_users ORDER BY chat_title ASC, id ASC"
+                )
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_authorized_user_by_id(self, user_id: int, chat_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """Returns details of a specific authorized user."""
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            if chat_id is not None and chat_id != 0:
+                cursor.execute("SELECT * FROM authorized_users WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
+            else:
+                cursor.execute("SELECT * FROM authorized_users WHERE user_id = ? LIMIT 1", (user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def list_groups_summary(self) -> List[Dict[str, Any]]:
+        """Returns distinct groups with authorized member counts."""
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT chat_id, chat_title, COUNT(*) as member_count
+                FROM authorized_users
+                WHERE chat_id != 0
+                GROUP BY chat_id, chat_title
+                ORDER BY member_count DESC, chat_title ASC
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def clear_authorized_users(self, keep_admin_ids: Optional[List[int]] = None, chat_id: Optional[int] = None) -> int:
+        """Clears authorized users from database, optionally keeping master bot owners or per group."""
         conn = self.get_connection()
         try:
             with conn:
                 cursor = conn.cursor()
+                query = "DELETE FROM authorized_users"
+                params: List[Any] = []
+                conditions = []
+
                 if keep_admin_ids:
                     placeholders = ",".join("?" for _ in keep_admin_ids)
-                    cursor.execute(f"DELETE FROM authorized_users WHERE user_id NOT IN ({placeholders})", keep_admin_ids)
-                else:
-                    cursor.execute("DELETE FROM authorized_users")
+                    conditions.append(f"user_id NOT IN ({placeholders})")
+                    params.extend(keep_admin_ids)
+
+                if chat_id is not None and chat_id != 0:
+                    conditions.append("chat_id = ?")
+                    params.append(chat_id)
+
+                if conditions:
+                    query += " WHERE " + " AND ".join(conditions)
+
+                cursor.execute(query, params)
                 return cursor.rowcount
         except Exception as e:
             logger.error(f"Failed to clear authorized users: {e}")
             return 0
         finally:
             conn.close()
+
 
 
