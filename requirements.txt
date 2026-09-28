@@ -1,0 +1,8 @@
+APScheduler==3.11.3
+pyaes==1.6.1
+pyasn1==0.6.4
+python-dotenv==1.2.3
+rsa==4.9.1
+Telethon==1.45.0
+tzdata==2026.4
+tzlocal==5.4.4

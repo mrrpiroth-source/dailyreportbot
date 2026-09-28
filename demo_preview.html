@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KHQR Daily Report Bot - Interactive Demo</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:ital,wght@0,300;0,400;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --tg-bg: #0f141c;
+      --tg-chat-bg: #17212b;
+      --tg-card: #202b36;
+      --tg-bubble-in: #182533;
+      --tg-bubble-out: #2b5278;
+      --tg-bubble-bot: #1c2a38;
+      --tg-accent: #2481cc;
+      --tg-accent-hover: #2990e6;
+      --tg-text: #f5f5f5;
+      --tg-text-muted: #7f91a4;
+      --tg-border: rgba(255, 255, 255, 0.08);
+      --success-green: #2ecc71;
+      --khr-blue: #0088cc;
+      --usd-gold: #f1c40f;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Kantumruy Pro', 'Plus Jakarta Sans', sans-serif;
+    }
+
+    body {
+      background: linear-gradient(135deg, #0b0e14 0%, #111722 100%);
+      color: var(--tg-text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .demo-header {
+      text-align: center;
+      margin-bottom: 20px;
+      max-width: 800px;
+    }
+
+    .demo-header h1 {
+      font-size: 26px;
+      font-weight: 700;
+      background: linear-gradient(90deg, #38ef7d, #11998e);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+
+    .demo-header p {
+      color: var(--tg-text-muted);
+      font-size: 14px;
+    }
+
+    /* Stats Overview Bar */
+    .stats-tally {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      width: 100%;
+      max-width: 850px;
+      margin-bottom: 16px;
+    }
+
+    .stat-card {
+      background: rgba(32, 43, 54, 0.7);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--tg-border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.2s;
+    }
+
+    .stat-card:hover {
+      transform: translateY(-2px);
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--tg-text-muted);
+      margin-bottom: 4px;
+    }
+
+    .stat-val {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .val-usd { color: #f39c12; }
+    .val-khr { color: #3498db; }
+    .val-count { color: #2ecc71; }
+
+    /* Telegram App Mockup */
+    .telegram-window {
+      width: 100%;
+      max-width: 850px;
+      height: 600px;
+      background: var(--tg-chat-bg);
+      border-radius: 16px;
+      border: 1px solid var(--tg-border);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .tg-top-bar {
+      background: #17212b;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--tg-border);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .tg-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0088cc, #00b4d8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: bold;
+    }
+
+    .tg-info h3 {
+      font-size: 15px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tg-info p {
+      font-size: 12px;
+      color: var(--tg-text-muted);
+    }
+
+    .chat-messages {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      background: radial-gradient(circle at 50% 50%, #151d27 0%, #0e141b 100%);
+    }
+
+    /* Message Bubbles */
+    .msg-wrap {
+      display: flex;
+      flex-direction: column;
+      max-width: 80%;
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg-wrap.bank-bot {
+      align-self: flex-start;
+    }
+
+    .msg-wrap.my-bot {
+      align-self: flex-start;
+    }
+
+    .msg-wrap.user {
+      align-self: flex-end;
+    }
+
+    .msg-sender {
+      font-size: 11px;
+      font-weight: 600;
+      margin-bottom: 3px;
+      padding-left: 4px;
+    }
+
+    .sender-bank { color: #00b4d8; }
+    .sender-reporter { color: #2ecc71; }
+    .sender-user { color: #f39c12; align-self: flex-end; padding-right: 4px; }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 14px;
+      font-size: 13.5px;
+      line-height: 1.5;
+      position: relative;
+      word-break: break-word;
+    }
+
+    .bubble.bank {
+      background: var(--tg-bubble-in);
+      border: 1px solid rgba(0, 180, 216, 0.2);
+      border-top-left-radius: 4px;
+    }
+
+    .bubble.bot-reply {
+      background: #1e2c3a;
+      border: 1px solid rgba(46, 204, 113, 0.25);
+      border-top-left-radius: 4px;
+    }
+
+    .bubble.user-msg {
+      background: var(--tg-bubble-out);
+      border-top-right-radius: 4px;
+      color: #fff;
+    }
+
+    .msg-time {
+      font-size: 10px;
+      color: rgba(255,255,255,0.4);
+      float: right;
+      margin-top: 6px;
+      margin-left: 12px;
+    }
+
+    /* Inline Action Buttons inside chat */
+    .inline-keyboard {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .btn-inline {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #70b2ec;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+
+    .btn-inline:hover {
+      background: rgba(36, 129, 204, 0.3);
+      color: #fff;
+      border-color: #2481cc;
+    }
+
+    .btn-full {
+      grid-column: span 2;
+    }
+
+    /* Simulation Control Toolbar */
+    .sim-panel {
+      width: 100%;
+      max-width: 850px;
+      background: rgba(23, 33, 43, 0.85);
+      border: 1px solid var(--tg-border);
+      border-radius: 14px;
+      padding: 16px;
+      margin-top: 14px;
+    }
+
+    .sim-panel h4 {
+      font-size: 13px;
+      color: var(--tg-text-muted);
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .sim-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .sim-btn {
+      background: #202b36;
+      border: 1px solid var(--tg-border);
+      color: var(--tg-text);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .sim-btn:hover {
+      background: #2c3e50;
+      border-color: #3498db;
+      transform: translateY(-1px);
+    }
+
+    .sim-btn.primary {
+      background: #1f4068;
+      border-color: #2481cc;
+      color: #fff;
+    }
+
+    .sim-btn.primary:hover {
+      background: #2481cc;
+    }
+
+    .sim-btn.warning {
+      background: #4a2810;
+      border-color: #e67e22;
+      color: #f39c12;
+    }
+
+    .sim-btn.danger {
+      background: #3e1b1b;
+      border-color: #c0392b;
+      color: #e74c3c;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="demo-header">
+    <h1>🤖 KHQR Daily Report Telegram Bot</h1>
+    <p>ផ្ទាំងសាកល្បង Demo ផ្ទាល់: សាកល្បងចុចប៊ូតុងខាងក្រោមដើម្បីបង្កើតការទូទាត់ និងមើលរបាយការណ៍បូកសរុបភ្លាមៗ!</p>
+  </div>
+
+  <!-- Live Stats Counter -->
+  <div class="stats-tally">
+    <div class="stat-card">
+      <span class="stat-label">🛒 ចំនួនលក់សរុប (Sales)</span>
+      <span class="stat-val val-count" id="totalCount">0 លើក</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">💵 សរុបប្រាក់ដុល្លារ (USD)</span>
+      <span class="stat-val val-usd" id="totalUsd">$0.00</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">🇰🇭 សរុបប្រាក់រៀល (KHR)</span>
+      <span class="stat-val val-khr" id="totalKhr">0 ៛</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">⏰ របាយការណ៍ស្វ័យប្រវត្ត</span>
+      <span class="stat-val" style="color: #00b4d8;">22:00 យប់</span>
+    </div>
+  </div>
+
+  <!-- Telegram Group Chat Mockup -->
+  <div class="telegram-window">
+    <div class="tg-top-bar">
+      <div class="tg-avatar">🛍️</div>
+      <div class="tg-info">
+        <h3>ហាងរបស់ខ្ញុំ (ABA KHQR Payments) <span>✔️</span></h3>
+        <p>3 សមាជិក (ABA Merchant Bot, KHQR Reporter Bot, You)</p>
+      </div>
+    </div>
+
+    <div class="chat-messages" id="chatBox">
+      <!-- Welcome message -->
+      <div class="msg-wrap my-bot">
+        <span class="msg-sender sender-reporter">🤖 KHQR Reporter Bot</span>
+        <div class="bubble bot-reply">
+          <b>សួស្តី! ប្រព័ន្ធ KHQR Daily Report Bot បានត្រៀមរួចរាល់។</b><br>
+          នៅពេលមានភ្ញៀវស្កេន KHQR ពីធនាគារ ABA ឬ Bakong ប្រព័ន្ធនឹងចាប់ទិន្នន័យ និងបូកសរុបជូនដោយស្វ័យប្រវត្ត។<br><br>
+          👇 <b>ចុចប៊ូតុងបញ្ជាមើលរបាយការណ៍:</b>
+          <div class="inline-keyboard">
+            <div class="btn-inline" onclick="triggerReport('today')">📊 ថ្ងៃនេះ (Today)</div>
+            <div class="btn-inline" onclick="triggerReport('yesterday')">📅 ម្សិលមិញ</div>
+            <div class="btn-inline" onclick="triggerReport('week')">🗓 ៧ថ្ងៃចុងក្រោយ</div>
+            <div class="btn-inline" onclick="triggerReport('month')">📈 ប្រចាំខែ (Month)</div>
+            <div class="btn-inline btn-full" onclick="triggerReport('recent')">📋 ប្រតិបត្តិការ ៥ ចុងក្រោយ</div>
+          </div>
+          <span class="msg-time">08:00</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Simulation Control Toolbar -->
+  <div class="sim-panel">
+    <h4>⚡ ផ្ទាំងបញ្ជាសាកល្បងសកម្មភាព (Simulation Controller)</h4>
+    <div class="sim-buttons">
+      <button class="sim-btn primary" onclick="simulatePayment(18.5, 'USD', 'CHAN VANDETH', 'ABA-001')">
+        💵 ភ្ញៀវបង់ $18.50 (ABA)
+      </button>
+      <button class="sim-btn primary" onclick="simulatePayment(80000, 'KHR', 'HENG SOKHA', 'ABA-002')">
+        🇰🇭 ភ្ញៀវបង់ 80,000 ៛ (ABA)
+      </button>
+      <button class="sim-btn primary" onclick="simulatePayment(35.0, 'USD', 'SOK SAMNANG', 'BK-003')">
+        💵 ភ្ញៀវបង់ $35.00 (Bakong)
+      </button>
+      <button class="sim-btn primary" onclick="simulatePayment(120000, 'KHR', 'កែវ ស្រីមុំ', 'ABA-004')">
+        🇰🇭 ភ្ញៀវបង់ 120,000 ៛ (Khmer)
+      </button>
+      <button class="sim-btn warning" onclick="simulateDuplicate()">
+        🛡️ សាកល្បងសារបន្លំ (Duplicate Ref)
+      </button>
+      <button class="sim-btn" onclick="simulateScheduledDaily()">
+        ⏰ ដល់ម៉ោង 22:00 (Daily Summary)
+      </button>
+      <button class="sim-btn" style="background: #14362b; border-color: #2ecc71; color: #a3e4d7;" onclick="simulateSyncHistory()">
+        📥 ទាញយកសារចាស់ៗ (/sync)
+      </button>
+      <button class="sim-btn danger" onclick="resetDemo()">
+        🧹 សម្អាតទិន្នន័យ (Reset)
+      </button>
+      <button class="sim-btn" style="background: #1b3a4b; border-color: #00b4d8; color: #90e0ef;" onclick="restoreDemoData()">
+        🔄 ផ្ទុកទិន្នន័យឡើងវិញ (Restore Data)
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // State management
+    let state = {
+      transactions: [],
+      usedRefs: new Set()
+    };
+
+    function getTimeStr() {
+      const now = new Date();
+      return now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+    }
+
+    function formatMoney(amount, currency) {
+      if (currency === 'USD') {
+        return '$' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      } else {
+        return Math.round(amount).toLocaleString('en-US') + ' ៛';
+      }
+    }
+
+    function updateStats() {
+      let usd = 0, khr = 0, count = state.transactions.length;
+      state.transactions.forEach(t => {
+        if (t.currency === 'USD') usd += t.amount;
+        else khr += t.amount;
+      });
+
+      document.getElementById('totalCount').innerText = count + ' លើក';
+      document.getElementById('totalUsd').innerText = formatMoney(usd, 'USD');
+      document.getElementById('totalKhr').innerText = formatMoney(khr, 'KHR');
+    }
+
+    function scrollChat() {
+      const chat = document.getElementById('chatBox');
+      setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 50);
+    }
+
+    function simulatePayment(amount, currency, payer, ref) {
+      const chat = document.getElementById('chatBox');
+      const time = getTimeStr();
+
+      // 1. Post bank message
+      const bankMsg = document.createElement('div');
+      bankMsg.className = 'msg-wrap bank-bot';
+      bankMsg.innerHTML = `
+        <span class="msg-sender sender-bank">🏦 ABA Merchant Bot</span>
+        <div class="bubble bank">
+          <b>Payment Received!</b><br>
+          Amount: <b>${formatMoney(amount, currency)}</b><br>
+          From: <code>${payer}</code><br>
+          Date: 28-Sep-2026 ${time}:15<br>
+          Ref / Trans ID: <code>${ref}</code><br>
+          Terminal: POS-01
+          <span class="msg-time">${time}</span>
+        </div>
+      `;
+      chat.appendChild(bankMsg);
+      scrollChat();
+
+      // 2. Bot processes
+      setTimeout(() => {
+        state.transactions.push({ amount, currency, payer, ref, time });
+        state.usedRefs.add(ref);
+        updateStats();
+
+        // Optional alert
+        const botMsg = document.createElement('div');
+        botMsg.className = 'msg-wrap my-bot';
+        botMsg.innerHTML = `
+          <span class="msg-sender sender-reporter">🤖 KHQR Reporter Bot</span>
+          <div class="bubble bot-reply">
+            ✅ <b>បានកត់ត្រាការទូទាត់ថ្មី!</b><br>
+            💵 ចំនួនទឹកប្រាក់: <b>${formatMoney(amount, currency)}</b><br>
+            👤 អតិថិជន: <b>${payer}</b><br>
+            🔖 លេខកូដយោង (Ref): <code>${ref}</code>
+            <span class="msg-time">${time}</span>
+          </div>
+        `;
+        chat.appendChild(botMsg);
+        scrollChat();
+      }, 350);
+    }
+
+    function simulateDuplicate() {
+      const chat = document.getElementById('chatBox');
+      const time = getTimeStr();
+
+      const bankMsg = document.createElement('div');
+      bankMsg.className = 'msg-wrap bank-bot';
+      bankMsg.innerHTML = `
+        <span class="msg-sender sender-bank">🏦 ABA Merchant Bot</span>
+        <div class="bubble bank">
+          <b>Payment Received!</b><br>
+          Amount: <b>$18.50</b><br>
+          From: <code>CHAN VANDETH</code><br>
+          Ref / Trans ID: <code>ABA-001</code> (Duplicate)
+          <span class="msg-time">${time}</span>
+        </div>
+      `;
+      chat.appendChild(bankMsg);
+      scrollChat();
+
+      setTimeout(() => {
+        const botMsg = document.createElement('div');
+        botMsg.className = 'msg-wrap my-bot';
+        botMsg.innerHTML = `
+          <span class="msg-sender sender-reporter">🤖 KHQR Reporter Bot</span>
+          <div class="bubble bot-reply" style="border-color: rgba(231, 76, 60, 0.4);">
+            🛡️ <b>[ANTI-DUPLICATE CAUGHT]:</b><br>
+            ប្រតិបត្តិការលេខកូដ <code>ABA-001</code> ត្រូវបានកត់ត្រារួចហើយ!<br>
+            <i>ប្រព័ន្ធបានការពារកុំឱ្យបូកប្រាក់ជាន់គ្នាទ្វេដង។</i>
+            <span class="msg-time">${time}</span>
+          </div>
+        `;
+        chat.appendChild(botMsg);
+        scrollChat();
+      }, 350);
+    }
+
+    function triggerReport(type) {
+      const chat = document.getElementById('chatBox');
+      const time = getTimeStr();
+
+      let usd = 0, khr = 0, countUsd = 0, countKhr = 0;
+      state.transactions.forEach(t => {
+        if (t.currency === 'USD') { usd += t.amount; countUsd++; }
+        else { khr += t.amount; countKhr++; }
+      });
+      const totalCount = countUsd + countKhr;
+      const avgUsd = countUsd > 0 ? (usd / countUsd) : 0;
+      const avgKhr = countKhr > 0 ? (khr / countKhr) : 0;
+
+      let title = "ថ្ងៃនេះ (Today)";
+      if (type === 'yesterday') title = "ម្សិលមិញ (Yesterday)";
+      if (type === 'week') title = "៧ថ្ងៃចុងក្រោយ (Week)";
+      if (type === 'month') title = "ប្រចាំខែ (Month)";
+
+      if (type === 'recent') {
+        const botMsg = document.createElement('div');
+        botMsg.className = 'msg-wrap my-bot';
+        let listText = state.transactions.slice(-5).reverse().map(t => 
+          `• <b>${formatMoney(t.amount, t.currency)}</b> | ${t.payer} (${t.time})`
+        ).join('<br>') || "📭 មិនទាន់មានប្រតិបត្តិការនៅឡើយទេ។";
+
+        botMsg.innerHTML = `
+          <span class="msg-sender sender-reporter">🤖 KHQR Reporter Bot</span>
+          <div class="bubble bot-reply">
+            📋 <b>ប្រតិបត្តិការ ៥ ចុងក្រោយ:</b><br><br>
+            ${listText}
+            <span class="msg-time">${time}</span>
+          </div>
+        `;
+        chat.appendChild(botMsg);
+        scrollChat();
+        return;
+      }
+
+      // Add user message
+      const userMsg = document.createElement('div');
+      userMsg.className = 'msg-wrap user';
+      userMsg.innerHTML = `
+        <span class="msg-sender sender-user">You</span>
+        <div class="bubble user-msg">
+          /${type}
+          <span class="msg-time">${time}</span>
+        </div>
+      `;
+      chat.appendChild(userMsg);
+      scrollChat();
+
+      // Bot response
+      setTimeout(() => {
+        const botMsg = document.createElement('div');
+        botMsg.className = 'msg-wrap my-bot';
+        botMsg.innerHTML = `
+          <span class="msg-sender sender-reporter">🤖 KHQR Reporter Bot</span>
+          <div class="bubble bot-reply">
+            📊 <b>របាយការណ៍បូកសរុបការលក់ KHQR ${title}</b><br>
+            🗓 <b>កាលបរិច្ឆេទ:</b> <code>2026-09-28</code><br>
+            ━━━━━━━━━━━━━━━━━━━━━━━━━<br>
+            🛒 <b>ចំនួនលក់សរុប:</b> <b>${totalCount}</b> លើក<br><br>
+            💵 <b>ប្រាក់ដុល្លារ (USD):</b><br>
+            &nbsp;&nbsp;• ទឹកប្រាក់សរុប: <b><code>${formatMoney(usd, 'USD')}</code></b><br>
+            &nbsp;&nbsp;• ចំនួនលក់: <b>${countUsd}</b> លើក<br>
+            &nbsp;&nbsp;• មធ្យមភាគ/ការលក់: <code>${formatMoney(avgUsd, 'USD')}</code><br><br>
+            🇰🇭 <b>ប្រាក់រៀល (KHR):</b><br>
+            &nbsp;&nbsp;• ទឹកប្រាក់សរុប: <b><code>${formatMoney(khr, 'KHR')}</code></b><br>
+            &nbsp;&nbsp;• ចំនួនលក់: <b>${countKhr}</b> លើក<br>
+            &nbsp;&nbsp;• មធ្យមភាគ/ការលក់: <code>${formatMoney(avgKhr, 'KHR')}</code><br>
+            ━━━━━━━━━━━━━━━━━━━━━━━━━<br>
+            ✨ <i>ទិន្នន័យត្រូវបានកត់ត្រា និងបូកសរុបស្វ័យប្រវត្ត</i>
+            <div class="inline-keyboard">
+              <div class="btn-inline" onclick="triggerReport('today')">📊 ថ្ងៃនេះ</div>
+              <div class="btn-inline" onclick="triggerReport('yesterday')">📅 ម្សិលមិញ</div>
+              <div class="btn-inline" onclick="triggerReport('month')">📈 ប្រចាំខែ</div>
+              <div class="btn-inline" onclick="triggerReport('recent')">📋 ៥ ចុងក្រោយ</div>
+            </div>
+            <span class="msg-time">${time}</span>
+          </div>
+        `;
+        chat.appendChild(botMsg);
+        scrollChat();
+      }, 300);
+    }
+
+    function simulateScheduledDaily() {
+      const chat = document.getElementById('chatBox');
+      let usd = 0, khr = 0, countUsd = 0, countKhr = 0;
+      state.transactions.forEach(t => {
+        if (t.currency === 'USD') { usd += t.amount; countUsd++; }
+        else { khr += t.amount; countKhr++; }
+      });
+      const totalCount = countUsd + countKhr;
+
+      const botMsg = document.createElement('div');
+      botMsg.className = 'msg-wrap my-bot';
+      botMsg.innerHTML = `
+        <span class="msg-sender sender-reporter">🤖 KHQR Reporter Bot (⏰ Auto Scheduled 22:00)</span>
+        <div class="bubble bot-reply" style="border: 2px solid #2ecc71;">
+          🔔 <b>របាយការណ៍បូកសរុបការលក់ប្រចាំថ្ងៃ (Daily Summary - 22:00)</b><br>
+          🗓 <b>កាលបរិច្ឆេទ:</b> <code>2026-09-28</code><br>
+          ━━━━━━━━━━━━━━━━━━━━━━━━━<br>
+          🛒 <b>ចំនួនលក់សរុប:</b> <b>${totalCount}</b> លើក<br><br>
+          💵 <b>សរុបប្រាក់ដុល្លារ:</b> <b><code>${formatMoney(usd, 'USD')}</code></b> (${countUsd} លើក)<br>
+          🇰🇭 <b>សរុបប្រាក់រៀល:</b> <b><code>${formatMoney(khr, 'KHR')}</code></b> (${countKhr} លើក)<br>
+          ━━━━━━━━━━━━━━━━━━━━━━━━━<br>
+          ✨ <i>របាយការណ៍ចុងបញ្ចប់នៃថ្ងៃ ត្រូវបានផ្ញើដោយស្វ័យប្រវត្ត</i>
+          <span class="msg-time">22:00</span>
+        </div>
+      `;
+      chat.appendChild(botMsg);
+      scrollChat();
+    }
+
+    function resetDemo() {
+      state.transactions = [];
+      state.usedRefs.clear();
+      updateStats();
+      const chat = document.getElementById('chatBox');
+      chat.innerHTML = `
+        <div class="msg-wrap my-bot">
+          <span class="msg-sender sender-reporter">🤖 KHQR Reporter Bot</span>
+          <div class="bubble bot-reply">
+            <b>ទិន្នន័យត្រូវបានសម្អាតឡើងវិញ (Reset Complete)!</b><br>
+            អ្នកអាចចុច <b>[🔄 ផ្ទុកទិន្នន័យឡើងវិញ]</b> ឬ <b>[📥 ទាញយកសារចាស់ៗ (/sync)]</b> ដើម្បីសាកល្បងទាញយកទិន្នន័យមុនៗ។
+            <span class="msg-time">${getTimeStr()}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    function simulateSyncHistory() {
+      const chat = document.getElementById('chatBox');
+      const time = getTimeStr();
+
+      // Show user typing /sync
+      const userMsg = document.createElement('div');
+      userMsg.className = 'msg-wrap user';
+      userMsg.innerHTML = `
+        <span class="msg-sender sender-user">You</span>
+        <div class="bubble user-msg">
+          /sync 200
+          <span class="msg-time">${time}</span>
+        </div>
+      `;
+      chat.appendChild(userMsg);
+      scrollChat();
+
+      // Simulate backfill process
+      setTimeout(() => {
+        // Add 3 past transactions
+        const pastTxns = [
+          { amount: 24.00, currency: 'USD', payer: 'PHENG SOK', ref: 'ABA-PAST-01', time: '11:20' },
+          { amount: 50000, currency: 'KHR', payer: 'CHHAY LEANG', ref: 'ABA-PAST-02', time: '12:15' },
+          { amount: 15.00, currency: 'USD', payer: 'VANN DARA', ref: 'BK-PAST-03', time: '13:00' }
+        ];
+
+        let newlyAdded = 0;
+        pastTxns.forEach(t => {
+          if (!state.usedRefs.has(t.ref)) {
+            state.transactions.push(t);
+            state.usedRefs.add(t.ref);
+            newlyAdded++;
+          }
+        });
+        updateStats();
+
+        const botMsg = document.createElement('div');
+        botMsg.className = 'msg-wrap my-bot';
+        botMsg.innerHTML = `
+          <span class="msg-sender sender-reporter">🤖 KHQR Reporter Bot (🔄 Auto Historical Sync)</span>
+          <div class="bubble bot-reply" style="border: 2px solid #2ecc71;">
+            ✅ <b>ការទាញយកទិន្នន័យចាស់ៗជោគជ័យ (Backfill Complete):</b><br><br>
+            • សារចាស់ៗដែលបានពិនិត្យក្នុង Group: <b>200</b> សារ<br>
+            • ប្រតិបត្តិការចាស់ដែលទើបចាប់បានថ្មី: <b>${newlyAdded}</b> លើក ($39.00 | 50,000 ៛)<br>
+            • កាលបរិច្ឆេទដើមនៃប្រតិបត្តិការ: ត្រូវបានរក្សាទុកត្រឹមត្រូវតាមម៉ោងផ្ញើសារ<br><br>
+            💡 <i>ប្រព័ន្ធបានបញ្ចូលទិន្នន័យមុនៗចូល Database រួចរាល់! លោកអ្នកអាចចុចមើលរបាយការណ៍បូកសរុបបានគ្រប់ពេល។</i>
+            <div class="inline-keyboard">
+              <div class="btn-inline" onclick="triggerReport('today')">📊 ថ្ងៃនេះ (Today)</div>
+              <div class="btn-inline" onclick="triggerReport('week')">🗓 ៧ថ្ងៃចុងក្រោយ</div>
+            </div>
+            <span class="msg-time">${time}</span>
+          </div>
+        `;
+        chat.appendChild(botMsg);
+        scrollChat();
+      }, 500);
+    }
+
+    function restoreDemoData() {
+      state.transactions = [
+        { amount: 18.50, currency: 'USD', payer: 'CHAN VANDETH', ref: 'ABA-001', time: '09:15' },
+        { amount: 80000, currency: 'KHR', payer: 'HENG SOKHA', ref: 'ABA-002', time: '10:30' },
+        { amount: 35.00, currency: 'USD', payer: 'SOK SAMNANG', ref: 'BK-003', time: '13:45' },
+        { amount: 120000, currency: 'KHR', payer: 'កែវ ស្រីមុំ', ref: 'ABA-004', time: '15:20' },
+        { amount: 12.00, currency: 'USD', payer: 'LONG DAVIN', ref: 'ABA-005', time: '16:40' }
+      ];
+      state.usedRefs = new Set(['ABA-001', 'ABA-002', 'BK-003', 'ABA-004', 'ABA-005']);
+      updateStats();
+
+      const chat = document.getElementById('chatBox');
+      chat.innerHTML = `
+        <div class="msg-wrap my-bot">
+          <span class="msg-sender sender-reporter">🤖 KHQR Reporter Bot</span>
+          <div class="bubble bot-reply">
+            ✅ <b>បានទាញយក និងផ្ទុកទិន្នន័យប្រចាំថ្ងៃ/សប្តាហ៍ឡើងវិញជោគជ័យ!</b><br>
+            សរុបបច្ចុប្បន្ន: <b>5 លើក</b> | <b>$65.50</b> | <b>200,000 ៛</b><br><br>
+            👇 <b>ចុចប៊ូតុងដើម្បីមើលរបាយការណ៍បូកសរុបឡើងវិញ:</b>
+            <div class="inline-keyboard">
+              <div class="btn-inline" onclick="triggerReport('today')">📊 ថ្ងៃនេះ (Today)</div>
+              <div class="btn-inline" onclick="triggerReport('yesterday')">📅 ម្សិលមិញ</div>
+              <div class="btn-inline" onclick="triggerReport('week')">🗓 ៧ថ្ងៃចុងក្រោយ</div>
+              <div class="btn-inline" onclick="triggerReport('month')">📈 ប្រចាំខែ (Month)</div>
+              <div class="btn-inline btn-full" onclick="triggerReport('recent')">📋 ប្រតិបត្តិការ ៥ ចុងក្រោយ</div>
+            </div>
+            <span class="msg-time">${getTimeStr()}</span>
+          </div>
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>

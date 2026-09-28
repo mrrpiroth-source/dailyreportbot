@@ -1,0 +1,25 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Sensitive Environment Variables
+.env
+
+# Telegram Session files (Keep private!)
+*.session
+*.session-journal
+auth_temp.json
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database (optional - keep private on git)
+*.db
+*.sqlite3
+
+# Logs
+*.log
