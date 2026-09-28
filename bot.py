@@ -560,6 +560,21 @@ def setup_handlers(client: TelegramClient):
             await event.reply("\n".join(lines), parse_mode="html")
             return
 
+        # 4b. RBAC Management: Clear all authorized staff (Bot Owner only)
+        if cmd in ("/clearusers", ".clearusers", "/resetusers", ".resetusers"):
+            if not is_admin(event.sender_id):
+                await event.reply("⛔ មានតែម្ចាស់អាជីវកម្ម (Avata) ប៉ុណ្ណោះដែលអាច Clear សិទ្ធិបាន!", parse_mode="html")
+                return
+
+            deleted_count = db.clear_authorized_users(keep_admin_ids=config.ADMIN_USER_IDS)
+            await event.reply(
+                f"🧹 <b>បានសម្អាត (Clear) សិទ្ធិបុគ្គលិកទាំងអស់ចំនួន {deleted_count} នាក់រួចរាល់!</b>\n\n"
+                f"👑 <b>បច្ចុប្បន្នមានតែម្ចាស់ Bot (Avata) មួយគត់ដែលអាចមើលរបាយការណ៍បាន។</b>\n"
+                "<i>រាល់អ្នកផ្សេងដែលចុចមើលរបាយការណ៍ នឹងត្រូវបញ្ជូនឈ្មោះ និង Telegram ID មកសុំការ Approve ពី Avata ទាំងអស់។</i>",
+                parse_mode="html"
+            )
+            return
+
         # 5. Permission Gate: Protect financial report commands
         report_cmd_prefixes = (
             "/today", ".today", "បូកសរុបថ្ងៃនេះ",

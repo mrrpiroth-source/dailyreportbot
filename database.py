@@ -501,3 +501,22 @@ class Database:
         finally:
             conn.close()
 
+    def clear_authorized_users(self, keep_admin_ids: Optional[List[int]] = None) -> int:
+        """Clears authorized users from database, optionally keeping master bot owners."""
+        conn = self.get_connection()
+        try:
+            with conn:
+                cursor = conn.cursor()
+                if keep_admin_ids:
+                    placeholders = ",".join("?" for _ in keep_admin_ids)
+                    cursor.execute(f"DELETE FROM authorized_users WHERE user_id NOT IN ({placeholders})", keep_admin_ids)
+                else:
+                    cursor.execute("DELETE FROM authorized_users")
+                return cursor.rowcount
+        except Exception as e:
+            logger.error(f"Failed to clear authorized users: {e}")
+            return 0
+        finally:
+            conn.close()
+
+
