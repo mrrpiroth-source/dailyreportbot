@@ -852,20 +852,25 @@ def setup_handlers(client: TelegramClient):
             if not event.is_private and not text.startswith(("/", ".")):
                 return
 
-        # Safety Check: Inspect sender identity
-        sender = await event.get_sender()
-        is_sender_bot = bool(sender and getattr(sender, 'bot', False))
+        # Safety Check: Inspect sender identity (groups only, to avoid entity lookup failure in PM)
+        is_sender_bot = False
+        if not event.is_private:
+            try:
+                sender = await event.get_sender()
+                is_sender_bot = bool(sender and getattr(sender, 'bot', False))
+            except Exception:
+                is_sender_bot = False
 
-        # SAFETY 1: NEVER process or respond to commands sent by other bots!
+        # SAFETY 1: NEVER process or respond to commands sent by other bots in groups!
         # This completely guarantees 0% chance of bot-to-bot loops or interference with bank bots.
         if is_sender_bot and text.startswith(("/", ".")):
             return
 
-        # SAFETY 2: Anti-Flood Rate limit commands per user (minimum 2.0s cooldown)
+        # SAFETY 2: Anti-Flood Rate limit commands per user (minimum 1.0s cooldown)
         if text.startswith(("/", ".")) and event.sender_id is not None:
             user_key = f"cmd_{event.sender_id}"
             now_ts = time.time()
-            if user_key in last_command_time and (now_ts - last_command_time[user_key]) < 2.0:
+            if user_key in last_command_time and (now_ts - last_command_time[user_key]) < 1.0:
                 logger.warning(f"Command throttled for user {event.sender_id} to prevent spam")
                 return
             last_command_time[user_key] = now_ts
@@ -908,10 +913,16 @@ def setup_handlers(client: TelegramClient):
 
         # 1. Identity command: Check Telegram ID (Publicly accessible)
         if cmd in ("/myid", ".myid", "/id", ".id"):
-            sender = await event.get_sender()
-            name = getattr(sender, 'first_name', 'User') or 'User'
+            name = "User"
+            try:
+                sender = await event.get_sender()
+                if sender:
+                    name = getattr(sender, 'first_name', 'User') or 'User'
+            except Exception:
+                pass
             extra_chat = f"\n👥 Group ID: <code>{chat_id}</code>\n" if not event.is_private else "\n"
-            await event.reply(
+            await safe_reply(
+                event,
                 f"🆔 <b>ព័ត៌មានអត្តសញ្ញាណ Telegram របស់អ្នក:</b>\n\n"
                 f"👤 ឈ្មោះ: <b>{name}</b>\n"
                 f"🔢 Telegram User ID: <code>{event.sender_id}</code>"
@@ -1084,11 +1095,15 @@ def setup_handlers(client: TelegramClient):
         if any(cmd.startswith(p) for p in report_cmd_prefixes):
             if not check_permission(event.sender_id, chat_id):
                 if event.sender_id is not None and event.sender_id > 0:
-                    sender = await event.get_sender()
-                    first = getattr(sender, "first_name", "") or ""
-                    last = getattr(sender, "last_name", "") or ""
+                    sender = None
+                    try:
+                        sender = await event.get_sender()
+                    except Exception:
+                        pass
+                    first = getattr(sender, "first_name", "") if sender else ""
+                    last = getattr(sender, "last_name", "") if sender else ""
                     fname = f"{first} {last}".strip() or f"User {event.sender_id}"
-                    uname_val = getattr(sender, "username", None)
+                    uname_val = getattr(sender, "username", None) if sender else None
                     uname_str = f" (@{uname_val})" if uname_val else ""
 
                     # Determine requester's role in the group (owner, admin, or member)
