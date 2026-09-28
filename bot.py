@@ -95,9 +95,12 @@ async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[An
 pending_requests: Dict[int, dict] = {}
 last_request_time: Dict[int, float] = {}       # Owner notification debounce (per user)
 last_callback_time: Dict[str, float] = {}      # Button tap debounce (per user+button)
+last_callback_any_time: Dict[int, float] = {}  # Global button tap rate limit (per user, any button)
 last_command_time: Dict[str, float] = {}       # Command rate limit (per user)
 last_access_denied_time: Dict[str, float] = {} # Access Denied reply debounce (per user+chat)
 last_khqr_time: Dict[str, float] = {}          # KHQR message processing debounce (per chat+ref)
+# Global per-user message burst tracker: {user_id: [timestamp, ...]}
+user_message_burst: Dict[int, list] = {}
 
 
 async def safe_edit_or_respond(event, text: str, buttons=None, parse_mode: str = "html", **kwargs):
@@ -473,9 +476,26 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
         sender_id = event.sender_id
         data = event.data
 
-        # Debounce rapid button taps from same user/button within 1.5 seconds
-        cb_key = f"{sender_id}_{data}"
+        # ══════════════════════════════════════════════════════════════════════
+        # BUTTON SPAM GUARDS — prevent rapid button flooding
+        # ══════════════════════════════════════════════════════════════════════
+
+        # GUARD A: Block null/anonymous senders (cannot be from legitimate users)
+        if sender_id is None:
+            await event.answer()
+            return
+
         now_ts = time.time()
+
+        # GUARD B: Global per-user button rate limit — max 1 click per 0.8s (ANY button)
+        # Prevents switching buttons rapidly to flood-bypass per-button debounce
+        if sender_id in last_callback_any_time and (now_ts - last_callback_any_time[sender_id]) < 0.8:
+            await event.answer("⏳ សូមមើលស្រេចជាមុនសិន...", alert=False)
+            return
+        last_callback_any_time[sender_id] = now_ts
+
+        # GUARD C: Per-button debounce — same user + same button within 1.5 seconds
+        cb_key = f"{sender_id}_{data}"
         if cb_key in last_callback_time and (now_ts - last_callback_time[cb_key]) < 1.5:
             await event.answer()
             return
@@ -1004,18 +1024,25 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             if not event.is_private and not text.startswith(("/", ".")):
                 return
 
-        # Safety Check: Inspect sender identity (groups only, to avoid entity lookup failure in PM)
+        # Safety Check: Inspect sender identity
+        # Groups: check for bot flag. Private: skip (entity lookup can fail on some accounts).
         is_sender_bot = False
+        sender_obj = None
         if not event.is_private:
             try:
-                sender = await event.get_sender()
-                is_sender_bot = bool(sender and getattr(sender, 'bot', False))
+                sender_obj = await event.get_sender()
+                is_sender_bot = bool(sender_obj and getattr(sender_obj, 'bot', False))
             except Exception:
                 is_sender_bot = False
 
-        # SAFETY 1: NEVER process or respond to commands sent by other bots in groups!
-        # This completely guarantees 0% chance of bot-to-bot loops or interference with bank bots.
-        if is_sender_bot and text.startswith(("/", ".")):
+        # SAFETY 1: Block ALL messages from bot accounts in groups (commands AND plain text).
+        # Bank bots, auto-responders, etc. send plain text — we must ignore ALL of them,
+        # not just their commands, to prevent any bot-to-bot interference or processing.
+        if is_sender_bot:
+            return
+
+        # SAFETY 1b: Block null/anonymous sender in groups — cannot rate-limit or identify them.
+        if not event.is_private and event.sender_id is None:
             return
 
         # SAFETY 2: Anti-Flood Rate limit commands per user (minimum 3.0s cooldown)
@@ -1026,6 +1053,18 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
                 logger.warning(f"Command throttled for user {event.sender_id} to prevent spam")
                 return
             last_command_time[user_key] = now_ts
+
+        # SAFETY 3: Global message burst protection — max 10 messages in 10 seconds per user
+        # Catches non-command text spam (e.g. auto-forwarders, scripts flooding the group)
+        if event.sender_id is not None:
+            now_burst = time.time()
+            burst_log = user_message_burst.setdefault(event.sender_id, [])
+            # Keep only messages from the last 10 seconds
+            burst_log[:] = [t for t in burst_log if now_burst - t < 10.0]
+            if len(burst_log) >= 10:
+                logger.warning(f"Burst spam detected from user {event.sender_id} — throttled ({len(burst_log)} msgs/10s)")
+                return
+            burst_log.append(now_burst)
 
         # Handle Commands
         text_stripped = text.strip()
