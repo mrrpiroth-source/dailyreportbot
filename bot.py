@@ -463,7 +463,7 @@ def restart_process():
         os._exit(0)
 
 
-def setup_handlers(client: TelegramClient):
+def setup_handlers(client: TelegramClient, bot_id: int = 0):
     """Sets up event handlers for incoming messages, commands, and button clicks."""
 
     # 1. Callback query handler for inline button taps
@@ -971,6 +971,24 @@ def setup_handlers(client: TelegramClient):
 
     # 2. Listener for new messages (monitoring KHQR payments & text commands)
     async def _process_message(event: events.NewMessage.Event):
+        # ══════════════════════════════════════════════════════════════
+        # ANTI-LOOP GUARDS — Must be the absolute FIRST checks!
+        # These prevent the "89 duplicate messages" infinite loop bug.
+        # ══════════════════════════════════════════════════════════════
+
+        # GUARD 1: Skip outgoing messages (messages the bot itself sent).
+        # Root cause of loop: Bot sends "Access Denied" → Telethon fires
+        # NewMessage event for it → handler replies again → infinite loop!
+        if event.out:
+            return
+
+        # GUARD 2: Skip messages where sender IS this bot's own account.
+        # Redundant safety net in case event.out is unreliable on user accounts.
+        if event.sender_id is not None and event.sender_id == bot_id:
+            return
+
+        # ══════════════════════════════════════════════════════════════
+
         text = event.raw_text
         if not text:
             return
@@ -1507,8 +1525,8 @@ async def start_bot():
         me = await client.get_me()
         print(f"✅ បានភ្ជាប់ជោគជ័យ: {me.first_name} (@{me.username or 'No username'})")
 
-    # Setup handlers and scheduler
-    setup_handlers(client)
+    # Setup handlers and scheduler (pass bot_id for anti-loop guard)
+    setup_handlers(client, bot_id=me.id)
     scheduler = setup_scheduler(client)
     scheduler.start()
 
