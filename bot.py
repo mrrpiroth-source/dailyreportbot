@@ -1665,7 +1665,7 @@ async def start_bot():
         return
 
     # Use StringSession to prevent issues on ephemeral filesystems (Cloud Hosting)
-    client = TelegramClient(StringSession(), config.API_ID, config.API_HASH)
+    client = TelegramClient(StringSession(config.USER_SESSION_STRING), config.API_ID, config.API_HASH)
 
     print("🚀 កំពុងដំណើរការ KHQR Daily Report Bot...")
 
