@@ -1064,15 +1064,15 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
         # ══════════════════════════════════════════════════════════════
 
         # GUARD 1: Skip outgoing messages (messages the bot itself sent).
-        # Root cause of loop: Bot sends "Access Denied" → Telethon fires
-        # NewMessage event for it → handler replies again → infinite loop!
-        if event.out:
-            return
+        # We MUST allow commands (e.g., /today) so the owner can use their own account to command the Userbot.
+        if getattr(event, 'out', False):
+            if not (event.raw_text and event.raw_text.startswith(("/", "."))):
+                return
 
         # GUARD 2: Skip messages where sender IS this bot's own account.
-        # Redundant safety net in case event.out is unreliable on user accounts.
-        if event.sender_id is not None and event.sender_id == bot_id:
-            return
+        if getattr(event, 'sender_id', None) == bot_id:
+            if not (event.raw_text and event.raw_text.startswith(("/", "."))):
+                return
 
         # ══════════════════════════════════════════════════════════════
 
