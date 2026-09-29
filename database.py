@@ -159,6 +159,12 @@ class Database:
         conn = self.get_connection()
         try:
             cursor = self.get_cursor(conn)
+            
+            # Prevent duplicates by raw_text
+            self.execute_sql(cursor, "SELECT id FROM transactions WHERE raw_text = ?", (raw_text,))
+            if cursor.fetchone():
+                return False, f"ប្រតិបត្តិការនេះមានរួចហើយ (Duplicate transaction text)", None
+
             try:
                 self.execute_sql(cursor, """
                     INSERT INTO transactions (
