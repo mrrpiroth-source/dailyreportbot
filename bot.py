@@ -1058,6 +1058,8 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
 
     # 2. Listener for new messages (monitoring KHQR payments & text commands)
     async def _process_message(event: events.NewMessage.Event):
+        print(f"DEBUG: ទទួលសារ! Text: {event.raw_text!r} | Out: {getattr(event, 'out', False)} | Sender: {event.sender_id} | Chat: {event.chat_id}")
+        
         # ══════════════════════════════════════════════════════════════
         # ANTI-LOOP GUARDS — Must be the absolute FIRST checks!
         # These prevent the "89 duplicate messages" infinite loop bug.
@@ -1623,7 +1625,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             else:
                 logger.warning(f"Ignored transaction: {message}")
 
-    @client.on(events.NewMessage)
+    @client.on(events.NewMessage(incoming=True, outgoing=True))
     async def message_listener(event: events.NewMessage.Event):
         try:
             await _process_message(event)
