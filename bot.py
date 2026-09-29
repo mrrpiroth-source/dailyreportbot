@@ -1669,20 +1669,24 @@ async def start_bot():
 
     print("🚀 កំពុងដំណើរការ KHQR Daily Report Bot...")
 
-    if config.BOT_TOKEN:
-        await cast(Awaitable[Any], client.start(bot_token=config.BOT_TOKEN))
-        me = await client.get_me()
+    await client.connect()
+    if not await client.is_user_authorized():
+        print("\n" + "="*60)
+        print("❌ កំហុស (CRITICAL ERROR):")
+        print("Telegram Session របស់អ្នកមិនត្រឹមត្រូវ (Invalid USER_SESSION_STRING) ឬក៏អ្នកមិនទាន់បានបញ្ចូលវានៅក្នុង Render!")
+        print("សូមដំណើរការ `python generate_session.py` នៅក្នុងកុំព្យូទ័ររបស់អ្នក ដើម្បីទទួលបាន Session String ថ្មី")
+        print("រួចយកទៅដាក់ក្នុង Render Environment Variables ម្តងទៀត!")
+        print("="*60 + "\n")
+        import sys
+        sys.exit(1)
+
+    me = await client.get_me()
+    if me.bot:
         print(f"✅ Bot បានដំណើរការជោគជ័យជា Bot Account: @{me.username}")
-    elif config.PHONE_NUMBER:
-        await cast(Awaitable[Any], client.start(phone=config.PHONE_NUMBER))
-        me = await client.get_me()
+    else:
         user_name = me.first_name + (f" {me.last_name}" if me.last_name else "")
         print(f"✅ បានភ្ជាប់ជោគជ័យជា User Account: {user_name} (@{me.username or 'No username'})")
         print("💡 គណនីនេះនឹងអានសារពី Bank Bot នៅក្នុង Group បាន ១០០% ដោយគ្មានបញ្ហា Telegram Block Bot-to-Bot!")
-    else:
-        await cast(Awaitable[Any], client.start())
-        me = await client.get_me()
-        print(f"✅ បានភ្ជាប់ជោគជ័យ: {me.first_name} (@{me.username or 'No username'})")
 
     # Setup handlers and scheduler (pass bot_id for anti-loop guard)
     setup_handlers(client, bot_id=me.id)
