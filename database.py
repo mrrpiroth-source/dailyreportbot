@@ -4,9 +4,12 @@ Stores all parsed transactions and generates daily/monthly summaries.
 """
 
 import sqlite3
+import logging
 import datetime
 from typing import Optional, Dict, Any, List, Tuple
 from zoneinfo import ZoneInfo
+
+logger = logging.getLogger("KHQR_DB")
 
 # Cambodia Timezone (UTC+7)
 CAMBODIA_TZ = ZoneInfo("Asia/Phnom_Penh")

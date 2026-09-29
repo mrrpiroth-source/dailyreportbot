@@ -145,30 +145,83 @@ async def safe_reply(event, text: str, buttons=None, parse_mode: str = "html", *
     except Exception as e:
         logger.error(f"Error in safe_reply: {e}")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Telegram Internal / System Bot IDs
+# These are NOT real bots — they are Telegram's own internal markers.
+# Blocking them would prevent anonymous admin commands from being processed.
+# ═══════════════════════════════════════════════════════════════════════════
+# @GroupAnonymousBot  — used when a group admin posts anonymously as the group
+TELEGRAM_ANON_ADMIN_BOT_ID = 1087968824
+# @Channel_Bot        — used for messages forwarded from a linked channel into the group
+TELEGRAM_CHANNEL_BOT_ID = 136817688
+# Set for O(1) lookup
+TELEGRAM_SYSTEM_BOT_IDS = frozenset({TELEGRAM_ANON_ADMIN_BOT_ID, TELEGRAM_CHANNEL_BOT_ID})
+
+
+def _is_anonymous_group_admin(sender_id: Optional[Any], chat_id: Optional[int]) -> bool:
+    """
+    Detects whether a group message was posted anonymously by a group admin.
+
+    In Telegram Bot API mode, anonymous admin messages arrive with:
+      sender_id = 1087968824  (@GroupAnonymousBot — Telegram internal marker)
+
+    In MTProto / Telethon User Client mode, they may arrive as:
+      sender_id = None                   (some scenarios), OR
+      sender_id = negative integer       (the group/channel peer ID)
+
+    All three cases are detected here.
+    """
+    if sender_id is None:
+        return True  # Null sender = anonymous
+    try:
+        s_id = int(sender_id)
+        # Telegram Bot API: anonymous admin message comes from @GroupAnonymousBot
+        if s_id == TELEGRAM_ANON_ADMIN_BOT_ID:
+            return True
+        # MTProto/User Client: negative peer ID = group/channel entity = anonymous admin
+        return s_id < 0
+    except (ValueError, TypeError):
+        return False
 
 
 def check_permission(sender_id: Optional[Any], chat_id: Optional[int] = None) -> bool:
     """
     Checks if a user is permitted to view financial reports.
-    Strictly enforced: Only Bot Owner(s) (Avata / ADMIN_USER_IDS) and staff explicitly approved
-    in SQLite database (db.is_user_authorized) are allowed to view reports.
-    Even the Group Owner or Group Admins MUST be approved by the Bot Owner (Avata) first.
+    Strictly enforced: Only Bot Owner(s) and staff explicitly approved
+    in SQLite database are allowed to view reports.
+
+    Anonymous group admin rule:
+      sender_id is None or negative → anonymous posting as the group.
+      If inside the monitored group (or no MONITOR_CHAT_ID configured) → treat as Bot Owner.
     """
-    if sender_id is None:
+    if _is_anonymous_group_admin(sender_id, chat_id):
+        # Case: MONITOR_CHAT_ID not configured → allow (bot owner controls this group)
+        if not config.MONITOR_CHAT_ID:
+            return True
+        # Case: MONITOR_CHAT_ID configured → only allow in that group
+        if chat_id is not None:
+            try:
+                if int(chat_id) == int(config.MONITOR_CHAT_ID):
+                    return True
+            except (ValueError, TypeError):
+                pass
         return False
     try:
-        s_id = int(sender_id)
+        s_id = int(sender_id)  # type: ignore[arg-type]
     except (ValueError, TypeError):
         return False
     if s_id <= 0:
         return False
-    # 1. Master Bot Owner Avata (7299682335) has permanent Super Admin rights
+    # 1. Master Bot Owner (MASTER_BOT_OWNER_ID) has permanent Super Admin rights
     if s_id == config.MASTER_BOT_OWNER_ID:
         return True
-    if not config.RESTRICT_REPORTS_TO_ADMIN:
-        return True
+    # 2. Configured ADMIN_USER_IDS always have access
     if config.ADMIN_USER_IDS and s_id in config.ADMIN_USER_IDS:
         return True
+    # 3. Open access mode (RESTRICT_REPORTS_TO_ADMIN=False) → allow everyone
+    if not config.RESTRICT_REPORTS_TO_ADMIN:
+        return True
+    # 4. Staff approved by Bot Owner via Approve button
     return db.is_user_authorized(s_id, chat_id)
 
 
@@ -177,16 +230,27 @@ def is_admin(sender_id: Optional[Any], chat_id: Optional[int] = None) -> bool:
     Checks if a user has full Bot Owner privileges (Avata / ADMIN_USER_IDS).
     Group Owners or Group Admins do NOT have admin rights over this bot.
     Only the Bot Owner can approve/deny access requests or manage authorized staff.
+
+    Anonymous admin rule: same as check_permission — negative/null sender_id
+    in the monitored group is treated as Bot Owner.
     """
-    if sender_id is None:
+    if _is_anonymous_group_admin(sender_id, chat_id):
+        if not config.MONITOR_CHAT_ID:
+            return True  # No MONITOR_CHAT_ID set → treat as Bot Owner
+        if chat_id is not None:
+            try:
+                if int(chat_id) == int(config.MONITOR_CHAT_ID):
+                    return True
+            except (ValueError, TypeError):
+                pass
         return False
     try:
-        s_id = int(sender_id)
+        s_id = int(sender_id)  # type: ignore[arg-type]
     except (ValueError, TypeError):
         return False
     if s_id <= 0:
         return False
-    # 1. Master Bot Owner Avata (7299682335) has permanent Super Admin rights
+    # 1. Master Bot Owner (MASTER_BOT_OWNER_ID) has permanent Super Admin rights
     if s_id == config.MASTER_BOT_OWNER_ID:
         return True
     # 2. Configured admin user IDs from environment
@@ -912,7 +976,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
                 first = getattr(sender_ent, "first_name", "") or ""
                 last = getattr(sender_ent, "last_name", "") or ""
                 fname = f"{first} {last}".strip() or f"User {sender_id}"
-                
+
                 # Determine requester's role in the group
                 g_role = await get_user_group_role(client, event.chat_id, sender_id)
 
@@ -933,7 +997,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             else:
                 await event.answer(
                     "⛔ ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ!\n\n"
-                    "⚠️ លោកអ្នកកំពុងបើក Send anonymously។ សូមបិទមុខងារនេះជាមុនសិន ទើបប្រព័ន្ធអាចចាប់យកឈ្មោះ និង Telegram ID របស់អ្នកសុំការ Approve បាន!",
+                    "⚠️ លោកអ្នកកំពុងបើក Send anonymously។ សូមបិទមុខងារនេះជាមុនសិន!",
                     alert=True
                 )
             return
@@ -1018,10 +1082,13 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
         chat_id = event.chat_id
         logger.info(f"Incoming message (Chat: {chat_id}, Sender: {event.sender_id}): {repr(text[:60])}")
 
-        # If MONITOR_CHAT_ID is specified, only process messages from that chat
+        # If MONITOR_CHAT_ID is set: only capture KHQR payment messages from that specific group.
+        # But commands (/today, /help, etc.) are allowed from ANY group the Bot is added to.
         if config.MONITOR_CHAT_ID and chat_id != config.MONITOR_CHAT_ID:
-            # Still allow commands in private chat
+            # Allow commands and private chats from anywhere
             if not event.is_private and not text.startswith(("/", ".")):
+                # Only block plain-text (non-command) messages from other groups
+                # so KHQR payment capture stays specific to the monitored group.
                 return
 
         # Safety Check: Inspect sender identity
@@ -1035,15 +1102,39 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             except Exception:
                 is_sender_bot = False
 
-        # SAFETY 1: Block ALL messages from bot accounts in groups (commands AND plain text).
-        # Bank bots, auto-responders, etc. send plain text — we must ignore ALL of them,
-        # not just their commands, to prevent any bot-to-bot interference or processing.
+        # SAFETY 1: Block ALL messages from regular bot accounts in groups.
+        # Exception: Telegram's own internal system bots (TELEGRAM_SYSTEM_BOT_IDS) must NOT
+        # be blocked — they carry anonymous group admin commands (@GroupAnonymousBot = 1087968824).
         if is_sender_bot:
-            return
+            if event.sender_id not in TELEGRAM_SYSTEM_BOT_IDS:
+                return  # Block real third-party bots (bank bots, auto-responders, etc.)
+            # If it's a Telegram system bot → fall through to handle as anonymous admin
 
-        # SAFETY 1b: Block null/anonymous sender in groups — cannot rate-limit or identify them.
-        if not event.is_private and event.sender_id is None:
-            return
+        # DEBUG: Log exact sender/chat info so we can trace anonymous admin issues
+        logger.info(
+            f"[MSG] chat={chat_id} sender={event.sender_id} "
+            f"is_private={event.is_private} out={event.out} "
+            f"text={repr(text[:50])}"
+        )
+
+        # SAFETY 1b: Handle anonymous senders in groups.
+        #
+        # When a group admin posts as the group (anonymous mode), Telethon gives:
+        #   sender_id = None           (some MTProto scenarios)
+        #   sender_id = negative int   (group/channel peer ID)
+        #
+        # _is_anonymous_group_admin() returns True for BOTH cases.
+        # Strategy:
+        #   - Commands (/today etc.) from anonymous sender → ALLOW (let check_permission decide)
+        #   - Plain text from anonymous sender → BLOCK (cannot identify, rate-limit, or KHQR-parse)
+        if not event.is_private and _is_anonymous_group_admin(event.sender_id, chat_id):
+            if text.startswith(("/", ".")):
+                logger.info(
+                    f"[ANON-ADMIN] Allowing anonymous command from chat={chat_id}: {repr(text[:40])}"
+                )
+                # Fall through — check_permission() will authorize correctly
+            else:
+                return  # Block non-command anonymous messages (spam / forwarded channels)
 
         # SAFETY 2: Anti-Flood Rate limit commands per user (minimum 3.0s cooldown)
         if text.startswith(("/", ".")) and event.sender_id is not None:
@@ -1153,6 +1244,22 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
                 f"✅ <i>ប្រព័ន្ធកំពុងដំណើរការកំណែចុងក្រោយបំផុតដោយជោគជ័យ។</i>"
             )
             await event.reply(status_text, parse_mode="html")
+            return
+
+        # Debug command to diagnose "Not working" issues
+        if cmd in ("/debug", ".debug"):
+            dbg_msg = (
+                f"🛠 <b>Diagnostics Data:</b>\n"
+                f"Chat ID: <code>{chat_id}</code>\n"
+                f"Monitor Chat ID in Env: <code>{config.MONITOR_CHAT_ID}</code>\n"
+                f"Sender ID: <code>{event.sender_id}</code>\n"
+                f"Is Sender Bot?: <code>{is_sender_bot}</code>\n"
+                f"Is Anonymous Admin?: <code>{_is_anonymous_group_admin(event.sender_id, chat_id)}</code>\n"
+                f"Is Admin?: <code>{is_owner_user}</code>\n"
+                f"Has Permission?: <code>{check_permission(event.sender_id, chat_id)}</code>\n"
+                f"Raw Text: <code>{text}</code>"
+            )
+            await safe_reply(event, dbg_msg, parse_mode="html")
             return
 
 
@@ -1285,7 +1392,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             await event.reply(text_panel, parse_mode="html", buttons=btns)
             return
 
-        # 5. Permission Gate: Protect financial report commands
+        # 5. Permission Gate: Protect all financial report commands
         report_cmd_prefixes = (
             "/today", ".today", "បូកសរុបថ្ងៃនេះ",
             "/yesterday", ".yesterday", "ម្សិលមិញ",
@@ -1322,8 +1429,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
                         group_role=g_role
                     )
 
-                    # SPAM GUARD: Debounce "Access Denied" reply per user per chat (60s cooldown)
-                    # Prevents group spam when user repeatedly types /today without permission.
+                    # SPAM GUARD: Debounce "Access Denied" reply (60s cooldown per user per chat)
                     ad_key = f"{event.sender_id}_{chat_id}"
                     now_ad = time.time()
                     if ad_key not in last_access_denied_time or (now_ad - last_access_denied_time[ad_key]) >= 60:
@@ -1334,21 +1440,19 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
                             "<i>(ទោះបីជា Owner ឬ Admin របស់ Group ក៏ត្រូវតែទទួលបានការអនុញ្ញាតពីម្ចាស់ Bot ជាមុនសិនដែរ)</i>\n\n"
                             f"👤 <b>ឈ្មោះ:</b> {fname} ({g_role}){uname_str}\n"
                             f"🔢 <b>Telegram User ID:</b> <code>{event.sender_id}</code>\n\n"
-                            "📩 <b>ប្រព័ន្ធបានចាប់យកឈ្មោះ និង Telegram ID របស់អ្នកបញ្ជូនទៅម្ចាស់ Bot (Avata) រួចរាល់ហើយ!</b>\n"
+                            "📩 <b>ប្រព័ន្ធបានបញ្ជូនឈ្មោះ និង ID ទៅម្ចាស់ Bot (Avata) ដើម្បីសុំ Approve រួចហើយ!</b>\n"
                             "💡 <i>សូមរង់ចាំម្ចាស់ Bot ចុចយល់ព្រម (Approve) មួយភ្លែត។</i>",
                             parse_mode="html"
                         )
                     else:
-                        # Silent throttle — don't reply again to avoid group spam
-                        logger.info(f"Access Denied reply throttled for user {event.sender_id} in chat {chat_id} (cooldown active)")
+                        logger.info(f"Access Denied reply throttled for user {event.sender_id} in chat {chat_id}")
                 else:
+                    # sender_id is None and NOT from the monitored group
                     await safe_reply(
                         event,
-                        "📊 <b>ផ្ទាំងរបាយការណ៍លក់ប្រចាំថ្ងៃ (Daily Sales Report)</b>\n\n"
-                        "👇 <b>សូមចុចលើប៊ូតុងខាងក្រោម ដើម្បីបើកមើលរបាយការណ៍ភ្លាមៗ៖</b>\n"
-                        "💡 <i>(ការចុចលើប៊ូតុងខាងក្រោម នឹងអនុញ្ញាតឱ្យប្រព័ន្ធផ្ទៀងផ្ទាត់សិទ្ធិបុគ្គលិកដោយស្វ័យប្រវត្ត)</i>",
-                        parse_mode="html",
-                        buttons=get_menu_buttons()
+                        "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Send anonymously)</b>\n\n"
+                        "💡 <i>សូមបិទ Send anonymously ដើម្បីប្រព័ន្ធអាចបញ្ជូន ID ទៅ Bot Owner សុំ Approve បាន។</i>",
+                        parse_mode="html"
                     )
                 return
 
