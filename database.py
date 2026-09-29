@@ -66,6 +66,8 @@ class Database:
             sql = sql.replace('AUTOINCREMENT', '')
             if 'INTEGER PRIMARY KEY' in sql:
                 sql = sql.replace('INTEGER PRIMARY KEY', 'SERIAL PRIMARY KEY')
+            sql = sql.replace('created_at LIKE', 'CAST(created_at AS TEXT) LIKE')
+            sql = sql.replace('transaction_time LIKE', 'CAST(transaction_time AS TEXT) LIKE')
         cursor.execute(sql, params)
 
     def init_db(self):
