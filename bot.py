@@ -1102,12 +1102,15 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             except Exception:
                 is_sender_bot = False
 
-        # SAFETY 1: Block ALL messages from regular bot accounts in groups.
+        # SAFETY 1: Block commands from regular bot accounts in groups.
         # Exception: Telegram's own internal system bots (TELEGRAM_SYSTEM_BOT_IDS) must NOT
         # be blocked — they carry anonymous group admin commands (@GroupAnonymousBot = 1087968824).
+        # We MUST ALLOW plain text from third-party bots (like PayWay by ABA) so the bot can parse KHQR payments!
         if is_sender_bot:
             if event.sender_id not in TELEGRAM_SYSTEM_BOT_IDS:
-                return  # Block real third-party bots (bank bots, auto-responders, etc.)
+                if text.startswith(("/", ".")):
+                    return  # Block commands from other bots to prevent loops
+                # If it's plain text from a bank bot, fall through to KHQR parsing!
             # If it's a Telegram system bot → fall through to handle as anonymous admin
 
         # DEBUG: Log exact sender/chat info so we can trace anonymous admin issues
