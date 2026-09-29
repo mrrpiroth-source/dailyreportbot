@@ -1073,7 +1073,12 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
 
         # GUARD 2: Skip messages where sender IS this bot's own account.
         if getattr(event, 'sender_id', None) == bot_id:
-            if not (event.raw_text and event.raw_text.startswith(("/", "."))):
+            text_lower = event.raw_text.lower() if event.raw_text else ""
+            allowed_texts = [
+                "👥 គ្រប់គ្រង group", "👑 admin panel", "ℹ️ ស្ថានភាព / version", 
+                "📊 របាយការណ៍លក់", "📊 របាយការណ៍ថ្ងៃនេះ"
+            ]
+            if not (event.raw_text and event.raw_text.startswith(("/", "."))) and text_lower not in allowed_texts:
                 return
 
         # ══════════════════════════════════════════════════════════════
@@ -1382,7 +1387,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
 
         # 4c. RBAC Group Member Management: /manage or /group or /members (Bot Owner Avata only)
         if cmd.startswith(("/manage", ".manage", "/group", ".group", "/members", ".members")):
-            if not is_admin(event.sender_id):
+            if not is_admin(event.sender_id) and event.sender_id != bot_id:
                 await event.reply("⛔ មុខងារគ្រប់គ្រងសមាជិកនេះ សម្រាប់តែម្ចាស់ Bot (Avata) តែប៉ុណ្ណោះ!", parse_mode="html")
                 return
 
@@ -1410,7 +1415,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             "/sync", ".sync", "/backfill"
         )
         if any(cmd.startswith(p) for p in report_cmd_prefixes):
-            if not check_permission(event.sender_id, chat_id):
+            if not check_permission(event.sender_id, chat_id) and event.sender_id != bot_id:
                 if event.sender_id is not None and event.sender_id > 0:
                     sender = None
                     try:
