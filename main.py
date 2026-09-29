@@ -20,8 +20,11 @@ if __name__ == "__main__":
     while True:
         try:
             asyncio.run(start_bot())
-            # If start_bot finishes normally without error, exit gracefully
-            break
+            # If start_bot finishes normally without error, it usually means the Telegram server force-closed the connection.
+            print("\n⚠️ ទំនាក់ទំនងទៅកាន់ Telegram ត្រូវបានផ្តាច់ដោយឯកឯង (Connection Closed by Server).")
+            print(f"🔄 កំពុងតភ្ជាប់ឡើងវិញដោយស្វ័យប្រវត្តក្នុងរយៈពេល {retry_delay} វិនាទី...")
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay + 2, 30)
         except (KeyboardInterrupt, SystemExit):
             print("\n👋 KHQR Bot ត្រូវបានបញ្ឈប់ (Stopped).")
             break

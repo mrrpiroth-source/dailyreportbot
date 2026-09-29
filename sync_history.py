@@ -16,6 +16,7 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding='utf-8')
 
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 from typing import cast, Any, Awaitable
 import os
 import config
@@ -45,11 +46,24 @@ async def sync_previous_messages(client: TelegramClient, chat_id, limit: int = 2
     try:
         me = await client.get_me()
         if getattr(me, 'bot', False):
-            if os.path.exists("user_session.session"):
+            if hasattr(config, 'USER_SESSION_STRING') and config.USER_SESSION_STRING:
+                logger.info("Bot account detected. Utilizing authenticated 'USER_SESSION_STRING' for historical backfill...")
+                try:
+                    user_client = TelegramClient(StringSession(config.USER_SESSION_STRING), config.API_ID, config.API_HASH)
+                    await user_client.connect()
+                    active_client = user_client
+                    print(f"✅ Userbot connected for sync! active_client is now {type(active_client)}")
+                except Exception as uc_err:
+                    print(f"❌ បរាជ័យក្នុងការបង្កើត ឬភ្ជាប់ USER_SESSION_STRING: {uc_err}")
+            elif os.path.exists("user_session.session"):
                 logger.info("Bot account detected. Utilizing authenticated 'user_session' for historical backfill...")
-                user_client = TelegramClient('user_session', config.API_ID, config.API_HASH)
-                await user_client.connect()
-                active_client = user_client
+                try:
+                    user_client = TelegramClient('user_session', config.API_ID, config.API_HASH)
+                    await user_client.connect()
+                    active_client = user_client
+                    print(f"✅ Userbot connected for sync! active_client is now {type(active_client)}")
+                except Exception as uc_err:
+                    print(f"❌ បរាជ័យក្នុងការបង្កើត ឬភ្ជាប់ user_session: {uc_err}")
             else:
                 logger.warning("Bot accounts cannot read past message history (Telegram Bot API restriction).")
                 print("⚠️ Telegram មិនអនុញ្ញាតឱ្យ Bot Account អានសារចាស់ៗក្នុង Group ឡើយ (GetHistoryRequest Restricted)!")
@@ -132,6 +146,7 @@ async def sync_previous_messages(client: TelegramClient, chat_id, limit: int = 2
 
     except Exception as e:
         print(f"❌ កំហុសក្នុងការទាញយកសារ: {e}")
+        config.SYNC_ON_STARTUP = False
         return None
     finally:
         if user_client and user_client.is_connected():

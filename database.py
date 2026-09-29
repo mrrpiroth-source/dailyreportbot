@@ -3,7 +3,15 @@ Database management for KHQR Telegram Daily Report Bot.
 Stores all parsed transactions and generates daily/monthly summaries.
 """
 
+
 import sqlite3
+try:
+    import psycopg2
+    from psycopg2.extras import DictCursor
+except ImportError:
+    psycopg2 = None
+import config
+
 import logging
 import datetime
 from typing import Optional, Dict, Any, List, Tuple
@@ -28,25 +36,46 @@ class Database:
         self.db_path = db_path
         self.init_db()
 
-    def get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=15.0)
-        conn.row_factory = sqlite3.Row
-        try:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA busy_timeout=5000;")
-        except Exception:
-            pass
-        return conn
+    def get_connection(self):
+        if hasattr(config, 'DATABASE_URL') and config.DATABASE_URL and config.DATABASE_URL.startswith('postgres'):
+            if not psycopg2:
+                raise RuntimeError("psycopg2 is not installed!")
+            conn = psycopg2.connect(config.DATABASE_URL)
+            conn.autocommit = True
+            return conn
+        else:
+            conn = sqlite3.connect(self.db_path, timeout=15.0)
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.execute("PRAGMA journal_mode=WAL;")
+                conn.execute("PRAGMA busy_timeout=5000;")
+            except Exception:
+                pass
+            return conn
+
+    def get_cursor(self, conn):
+        if hasattr(config, 'DATABASE_URL') and config.DATABASE_URL and config.DATABASE_URL.startswith('postgres'):
+            return conn.cursor(cursor_factory=DictCursor)
+        return conn.cursor()
+
+    def execute_sql(self, cursor, sql, params=()):
+        if hasattr(config, 'DATABASE_URL') and config.DATABASE_URL and config.DATABASE_URL.startswith('postgres'):
+            # Postgres uses %s instead of ?
+            sql = sql.replace('?', '%s')
+            # Postgres uses SERIAL instead of AUTOINCREMENT
+            sql = sql.replace('AUTOINCREMENT', '')
+            if 'INTEGER PRIMARY KEY' in sql:
+                sql = sql.replace('INTEGER PRIMARY KEY', 'SERIAL PRIMARY KEY')
+        cursor.execute(sql, params)
 
     def init_db(self):
         """Initializes database tables if they do not exist."""
         conn = self.get_connection()
         try:
-            with conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS transactions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cursor = self.get_cursor(conn)
+            self.execute_sql(cursor, """
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                         amount REAL NOT NULL,
                         currency TEXT NOT NULL, -- 'USD' or 'KHR'
                         payer_name TEXT,
@@ -58,46 +87,46 @@ class Database:
                     );
                 """)
 
-                cursor.execute("""
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_ref_code 
-                    ON transactions(ref_code) 
-                    WHERE ref_code IS NOT NULL AND ref_code != '';
-                """)
+            self.execute_sql(cursor, """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_ref_code 
+                ON transactions(ref_code) 
+                WHERE ref_code IS NOT NULL AND ref_code != '';
+            """)
 
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_transactions_created_date 
-                    ON transactions(transaction_time);
-                """)
+            self.execute_sql(cursor, """
+                CREATE INDEX IF NOT EXISTS idx_transactions_created_date 
+                ON transactions(transaction_time);
+            """)
 
-                # Authorized Users table for high-security Role-Based Access Control (RBAC) organized by Group
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS authorized_users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        username TEXT,
-                        full_name TEXT,
-                        role TEXT DEFAULT 'staff', -- 'owner', 'admin', 'staff'
-                        chat_id INTEGER DEFAULT 0,
-                        chat_title TEXT DEFAULT '',
-                        group_role TEXT DEFAULT 'សមាជិក', -- 'owner', 'admin', 'សមាជិក'
-                        added_by INTEGER,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(user_id, chat_id)
-                    );
-                """)
-                # Seamless migrations for existing tables
-                for col_sql in [
-                    "ALTER TABLE authorized_users ADD COLUMN chat_id INTEGER DEFAULT 0;",
-                    "ALTER TABLE authorized_users ADD COLUMN chat_title TEXT DEFAULT '';",
-                    "ALTER TABLE authorized_users ADD COLUMN group_role TEXT DEFAULT 'សមាជិក';"
-                ]:
-                    try:
-                        cursor.execute(col_sql)
-                    except Exception:
-                        pass
+            # Authorized Users table for high-security Role-Based Access Control (RBAC) organized by Group
+            self.execute_sql(cursor, """
+                CREATE TABLE IF NOT EXISTS authorized_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    username TEXT,
+                    full_name TEXT,
+                    role TEXT DEFAULT 'staff', -- 'owner', 'admin', 'staff'
+                    chat_id INTEGER DEFAULT 0,
+                    chat_title TEXT DEFAULT '',
+                    group_role TEXT DEFAULT 'សមាជិក', -- 'owner', 'admin', 'សមាជិក'
+                    added_by INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, chat_id)
+                );
+            """)
+            # Seamless migrations for existing tables
+            for col_sql in [
+                "ALTER TABLE authorized_users ADD COLUMN chat_id INTEGER DEFAULT 0;",
+                "ALTER TABLE authorized_users ADD COLUMN chat_title TEXT DEFAULT '';",
+                "ALTER TABLE authorized_users ADD COLUMN group_role TEXT DEFAULT 'សមាជិក';"
+            ]:
+                try:
+                    self.execute_sql(cursor, col_sql)
+                except Exception:
+                    pass
 
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_chat_id ON authorized_users(chat_id);")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_chat_title ON authorized_users(chat_title);")
+            self.execute_sql(cursor, "CREATE INDEX IF NOT EXISTS idx_auth_chat_id ON authorized_users(chat_id);")
+            self.execute_sql(cursor, "CREATE INDEX IF NOT EXISTS idx_auth_chat_title ON authorized_users(chat_title);")
         finally:
             conn.close()
 
@@ -127,9 +156,9 @@ class Database:
 
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
+            cursor = self.get_cursor(conn)
             try:
-                cursor.execute("""
+                self.execute_sql(cursor, """
                     INSERT INTO transactions (
                         amount, currency, payer_name, ref_code, 
                         bank_name, raw_text, transaction_time
@@ -144,8 +173,14 @@ class Database:
                     transaction_time
                 ))
                 conn.commit()
-                return True, "បានកត់ត្រាជោគជ័យ (Saved successfully)", cursor.lastrowid
-            except sqlite3.IntegrityError:
+                if hasattr(config, 'DATABASE_URL') and config.DATABASE_URL and config.DATABASE_URL.startswith('postgres'):
+                    # psycopg2 doesn't have lastrowid
+                    return True, "បានកត់ត្រាជោគជ័យ (Saved successfully)", None
+                else:
+                    return True, "បានកត់ត្រាជោគជ័យ (Saved successfully)", cursor.lastrowid
+            except (sqlite3.IntegrityError, Exception) as e:
+                if "UNIQUE" not in str(e) and "duplicate" not in str(e).lower():
+                    raise e
                 # Duplicate ref_code detected! Prevent double-counting.
                 return False, f"ប្រតិបត្តិការនេះមានរួចហើយ (Duplicate transaction Ref: {ref_code})", None
             except Exception as e:
@@ -166,10 +201,10 @@ class Database:
 
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
+            cursor = self.get_cursor(conn)
             
             # USD stats
-            cursor.execute("""
+            self.execute_sql(cursor, """
                 SELECT 
                     COALESCE(SUM(amount), 0) as total,
                     COUNT(id) as count,
@@ -184,7 +219,7 @@ class Database:
             avg_usd = float(usd_row["avg_amount"]) if usd_row else 0.0
 
             # KHR stats
-            cursor.execute("""
+            self.execute_sql(cursor, """
                 SELECT 
                     COALESCE(SUM(amount), 0) as total,
                     COUNT(id) as count,
@@ -222,10 +257,10 @@ class Database:
 
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
+            cursor = self.get_cursor(conn)
 
             # USD
-            cursor.execute("""
+            self.execute_sql(cursor, """
                 SELECT 
                     COALESCE(SUM(amount), 0) as total, 
                     COUNT(id) as count,
@@ -239,7 +274,7 @@ class Database:
             avg_usd = float(usd_row["avg_amount"]) if usd_row else 0.0
 
             # KHR
-            cursor.execute("""
+            self.execute_sql(cursor, """
                 SELECT 
                     COALESCE(SUM(amount), 0) as total, 
                     COUNT(id) as count,
@@ -253,7 +288,7 @@ class Database:
             avg_khr = float(khr_row["avg_amount"]) if khr_row else 0.0
 
             # Active days in month
-            cursor.execute("""
+            self.execute_sql(cursor, """
                 SELECT COUNT(DISTINCT SUBSTR(transaction_time, 1, 10)) as active_days
                 FROM transactions
                 WHERE transaction_time LIKE ?
@@ -284,10 +319,10 @@ class Database:
 
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
+            cursor = self.get_cursor(conn)
 
             # USD
-            cursor.execute("""
+            self.execute_sql(cursor, """
                 SELECT 
                     COALESCE(SUM(amount), 0) as total, 
                     COUNT(id) as count,
@@ -302,7 +337,7 @@ class Database:
             avg_usd = float(usd_row["avg_amount"]) if usd_row else 0.0
 
             # KHR
-            cursor.execute("""
+            self.execute_sql(cursor, """
                 SELECT 
                     COALESCE(SUM(amount), 0) as total, 
                     COUNT(id) as count,
@@ -343,10 +378,10 @@ class Database:
 
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
+            cursor = self.get_cursor(conn)
 
             # USD
-            cursor.execute("""
+            self.execute_sql(cursor, """
                 SELECT 
                     COALESCE(SUM(amount), 0) as total, 
                     COUNT(id) as count
@@ -358,7 +393,7 @@ class Database:
             count_usd = int(usd_row["count"]) if usd_row else 0
 
             # KHR
-            cursor.execute("""
+            self.execute_sql(cursor, """
                 SELECT 
                     COALESCE(SUM(amount), 0) as total, 
                     COUNT(id) as count
@@ -370,7 +405,7 @@ class Database:
             count_khr = int(khr_row["count"]) if khr_row else 0
 
             # Active days in year
-            cursor.execute("""
+            self.execute_sql(cursor, """
                 SELECT COUNT(DISTINCT SUBSTR(transaction_time, 1, 10)) as active_days
                 FROM transactions
                 WHERE transaction_time LIKE ?
@@ -379,7 +414,7 @@ class Database:
             active_days = int(active_days_row["active_days"]) if active_days_row else 0
 
             # Monthly breakdown
-            cursor.execute("""
+            self.execute_sql(cursor, """
                 SELECT 
                     SUBSTR(transaction_time, 6, 2) as month_num,
                     currency,
@@ -449,8 +484,8 @@ class Database:
         """Returns the most recent transactions."""
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
-            cursor.execute("""
+            cursor = self.get_cursor(conn)
+            self.execute_sql(cursor, """
                 SELECT id, amount, currency, payer_name, ref_code, bank_name, transaction_time
                 FROM transactions
                 ORDER BY id DESC
@@ -476,8 +511,8 @@ class Database:
         conn = self.get_connection()
         try:
             with conn:
-                cursor = conn.cursor()
-                cursor.execute("""
+                cursor = self.get_cursor(conn)
+                self.execute_sql(cursor, """
                     INSERT INTO authorized_users (user_id, username, full_name, role, chat_id, chat_title, group_role, added_by)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(user_id, chat_id) DO UPDATE SET
@@ -499,11 +534,11 @@ class Database:
         conn = self.get_connection()
         try:
             with conn:
-                cursor = conn.cursor()
+                cursor = self.get_cursor(conn)
                 if chat_id is not None and chat_id != 0:
-                    cursor.execute("DELETE FROM authorized_users WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
+                    self.execute_sql(cursor, "DELETE FROM authorized_users WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
                 else:
-                    cursor.execute("DELETE FROM authorized_users WHERE user_id = ?", (user_id,))
+                    self.execute_sql(cursor, "DELETE FROM authorized_users WHERE user_id = ?", (user_id,))
                 return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Failed to remove authorized user: {e}")
@@ -515,11 +550,11 @@ class Database:
         """Checks if a user is permitted to use the bot in a group."""
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
+            cursor = self.get_cursor(conn)
             if chat_id is not None and chat_id != 0:
-                cursor.execute("SELECT 1 FROM authorized_users WHERE user_id = ? AND (chat_id = ? OR chat_id = 0)", (user_id, chat_id))
+                self.execute_sql(cursor, "SELECT 1 FROM authorized_users WHERE user_id = ? AND (chat_id = ? OR chat_id = 0)", (user_id, chat_id))
             else:
-                cursor.execute("SELECT 1 FROM authorized_users WHERE user_id = ?", (user_id,))
+                self.execute_sql(cursor, "SELECT 1 FROM authorized_users WHERE user_id = ?", (user_id,))
             return cursor.fetchone() is not None
         finally:
             conn.close()
@@ -528,11 +563,11 @@ class Database:
         """Returns role ('owner', 'admin', 'staff') of a user if authorized, else None."""
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
+            cursor = self.get_cursor(conn)
             if chat_id is not None and chat_id != 0:
-                cursor.execute("SELECT role FROM authorized_users WHERE user_id = ? AND (chat_id = ? OR chat_id = 0) ORDER BY id ASC LIMIT 1", (user_id, chat_id))
+                self.execute_sql(cursor, "SELECT role FROM authorized_users WHERE user_id = ? AND (chat_id = ? OR chat_id = 0) ORDER BY id ASC LIMIT 1", (user_id, chat_id))
             else:
-                cursor.execute("SELECT role FROM authorized_users WHERE user_id = ? ORDER BY id ASC LIMIT 1", (user_id,))
+                self.execute_sql(cursor, "SELECT role FROM authorized_users WHERE user_id = ? ORDER BY id ASC LIMIT 1", (user_id,))
             row = cursor.fetchone()
             return row[0] if row else None
         finally:
@@ -542,14 +577,14 @@ class Database:
         """Returns all authorized users, optionally filtered by group chat_id."""
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
+            cursor = self.get_cursor(conn)
             if chat_id is not None and chat_id != 0:
-                cursor.execute(
+                self.execute_sql(cursor, 
                     "SELECT id, user_id, username, full_name, role, chat_id, chat_title, group_role, created_at "
                     "FROM authorized_users WHERE chat_id = ? ORDER BY id ASC", (chat_id,)
                 )
             else:
-                cursor.execute(
+                self.execute_sql(cursor, 
                     "SELECT id, user_id, username, full_name, role, chat_id, chat_title, group_role, created_at "
                     "FROM authorized_users ORDER BY chat_title ASC, id ASC"
                 )
@@ -564,22 +599,22 @@ class Database:
         """
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
+            cursor = self.get_cursor(conn)
             if group_query:
                 clean_q = str(group_query).strip()
                 if clean_q.lstrip("-").isdigit():
-                    cursor.execute(
+                    self.execute_sql(cursor, 
                         "SELECT id, user_id, username, full_name, role, chat_id, chat_title, group_role, created_at "
                         "FROM authorized_users WHERE chat_id = ? ORDER BY id ASC", (int(clean_q),)
                     )
                 else:
-                    cursor.execute(
+                    self.execute_sql(cursor, 
                         "SELECT id, user_id, username, full_name, role, chat_id, chat_title, group_role, created_at "
                         "FROM authorized_users WHERE LOWER(chat_title) LIKE ? ORDER BY id ASC",
                         (f"%{clean_q.lower()}%",)
                     )
             else:
-                cursor.execute(
+                self.execute_sql(cursor, 
                     "SELECT id, user_id, username, full_name, role, chat_id, chat_title, group_role, created_at "
                     "FROM authorized_users ORDER BY chat_title ASC, id ASC"
                 )
@@ -592,11 +627,11 @@ class Database:
         """Returns details of a specific authorized user."""
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
+            cursor = self.get_cursor(conn)
             if chat_id is not None and chat_id != 0:
-                cursor.execute("SELECT * FROM authorized_users WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
+                self.execute_sql(cursor, "SELECT * FROM authorized_users WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
             else:
-                cursor.execute("SELECT * FROM authorized_users WHERE user_id = ? LIMIT 1", (user_id,))
+                self.execute_sql(cursor, "SELECT * FROM authorized_users WHERE user_id = ? LIMIT 1", (user_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
         finally:
@@ -606,8 +641,8 @@ class Database:
         """Returns distinct groups with authorized member counts."""
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
-            cursor.execute("""
+            cursor = self.get_cursor(conn)
+            self.execute_sql(cursor, """
                 SELECT chat_id, chat_title, COUNT(*) as member_count
                 FROM authorized_users
                 WHERE chat_id != 0
@@ -624,7 +659,7 @@ class Database:
         conn = self.get_connection()
         try:
             with conn:
-                cursor = conn.cursor()
+                cursor = self.get_cursor(conn)
                 query = "DELETE FROM authorized_users"
                 params: List[Any] = []
                 conditions = []
@@ -641,7 +676,7 @@ class Database:
                 if conditions:
                     query += " WHERE " + " AND ".join(conditions)
 
-                cursor.execute(query, params)
+                self.execute_sql(cursor, query, params)
                 return cursor.rowcount
         except Exception as e:
             logger.error(f"Failed to clear authorized users: {e}")
@@ -653,8 +688,8 @@ class Database:
         """Returns total count of transactions stored in database."""
         conn = self.get_connection()
         try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM transactions")
+            cursor = self.get_cursor(conn)
+            self.execute_sql(cursor, "SELECT COUNT(*) FROM transactions")
             row = cursor.fetchone()
             return row[0] if row else 0
         finally:

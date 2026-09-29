@@ -26,6 +26,7 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding='utf-8')
 
 from telethon import TelegramClient, events, Button
+from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError, MessageNotModifiedError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -1663,8 +1664,8 @@ async def start_bot():
         print("="*60 + "\n")
         return
 
-    session_name = "khqr_session"
-    client = TelegramClient(session_name, config.API_ID, config.API_HASH)
+    # Use StringSession to prevent issues on ephemeral filesystems (Cloud Hosting)
+    client = TelegramClient(StringSession(), config.API_ID, config.API_HASH)
 
     print("🚀 កំពុងដំណើរការ KHQR Daily Report Bot...")
 
