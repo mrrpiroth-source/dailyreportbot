@@ -26,6 +26,9 @@ class KHQRParser:
         if not text or not isinstance(text, str):
             return None
 
+        if "របាយការណ៍បូកសរុប" in text or "KHQR Sales" in text or "ផ្ទាំងគ្រប់គ្រង" in text or "ទើបទទួលបានការទូទាត់" in text or "✅" in text:
+            return None
+
         clean_text = text.strip()
 
         # Step 1: Check specialized ABA PayWay format first

@@ -1,30 +1,57 @@
 """
 Reporter module for formatting KHQR sales and payment summaries in Khmer.
-Provides clear breakdowns of:
-- ទឹកប្រាក់សរុប (Total Amount in USD & KHR)
-- ចំនួនលក់សរុប (Total Sales Count)
-- ការប្រៀបធៀបការលក់ (ម្សិលមិញ VS ថ្ងៃនេះ - Growth / Decline)
-- របាយការណ៍ប្រចាំឆ្នាំ (Yearly Report with monthly breakdown)
 """
 
 from typing import Dict, Any, List, Optional
+import datetime
 
+MONTHS_KH = {
+    "01": "មករា", "02": "កុម្ភៈ", "03": "មីនា", "04": "មេសា",
+    "05": "ឧសភា", "06": "មិថុនា", "07": "កក្កដា", "08": "សីហា",
+    "09": "កញ្ញា", "10": "តុលា", "11": "វិច្ឆិកា", "12": "ធ្នូ"
+}
 
 def format_currency(amount: float, currency: str) -> str:
-    """Formats money with commas and currency symbol."""
     if currency == "USD":
         return f"${amount:,.2f}"
     else:  # KHR
         return f"{int(round(amount)):,} ៛"
 
+def format_khmer_date(date_str: str) -> str:
+    # "2025-08-04" -> "4 សីហា 2025"
+    try:
+        y, m, d = date_str.split('-')
+        return f"{int(d)} {MONTHS_KH.get(m, m)} {y}"
+    except:
+        return date_str
+
+def format_khmer_month(month_str: str) -> str:
+    # "2025-08" -> "សីហា 2025"
+    try:
+        y, m = month_str.split('-')
+        return f"{MONTHS_KH.get(m, m)} {y}"
+    except:
+        return month_str
+
+def format_12h_time(time_str: str) -> str:
+    # "14:21" -> "02:21PM"
+    if not time_str:
+        return ""
+    try:
+        h, m = map(int, time_str.split(':'))
+        ampm = "AM" if h < 12 else "PM"
+        h = h % 12
+        if h == 0:
+            h = 12
+        return f"{h:02d}:{m:02d}{ampm}"
+    except:
+        return time_str
 
 def format_transaction_alert(data: Dict[str, Any]) -> str:
-    """Formats an instant alert when a new payment is captured and saved."""
     amount_str = format_currency(data["amount"], data["currency"])
     payer = data.get("payer_name") or "ភ្ញៀវ (Customer)"
     ref = data.get("ref_code") or "N/A"
     bank = data.get("bank_name") or "KHQR"
-
     return (
         f"✅ <b>ទទួលបានការទូទាត់ថ្មី ({bank})</b>\n\n"
         f"💵 <b>ចំនួនទឹកប្រាក់:</b> <code>{amount_str}</code>\n"
@@ -32,219 +59,142 @@ def format_transaction_alert(data: Dict[str, Any]) -> str:
         f"🔖 <b>លេខកូដយោង (Ref):</b> <code>{ref}</code>\n"
     )
 
-
 def format_daily_summary(
     summary: Dict[str, Any], 
     comparison: Optional[Dict[str, Any]] = None,
-    title_prefix: str = "ប្រចាំថ្ងៃ"
+    title_prefix: str = ""
 ) -> str:
-    """
-    Formats the daily summary message in Khmer detailing total amounts and sales counts.
-    Replaces average with Yesterday VS Today sales comparison (growth / decline).
-    """
     target_date = summary.get("date", "Today")
     total_usd = summary.get("total_usd", 0.0)
     count_usd = summary.get("count_usd", 0)
-    
     total_khr = summary.get("total_khr", 0.0)
     count_khr = summary.get("count_khr", 0)
     
-    total_count = summary.get("total_count", 0)
+    khmer_date = format_khmer_date(target_date)
+    
+    # Get current time
+    now_time = datetime.datetime.now().strftime("%H:%M")
+    now_time_12h = format_12h_time(now_time)
 
-    usd_str = format_currency(total_usd, "USD")
-    khr_str = format_currency(total_khr, "KHR")
+    min_time = format_12h_time(summary.get("min_time", ""))
+    max_time = format_12h_time(summary.get("max_time", ""))
+    time_range = f"{min_time} -> {max_time}" if min_time and max_time else "គ្មានប្រតិបត្តិការ"
 
     msg = (
-        f"📊 <b>របាយការណ៍បូកសរុបការលក់ KHQR {title_prefix}</b>\n"
-        f"🗓 <b>កាលបរិច្ឆេទ:</b> <code>{target_date}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🛒 <b>ចំនួនលក់សរុប:</b> <b>{total_count}</b> លើក\n\n"
-        f"💵 <b>ប្រាក់ដុល្លារ (USD):</b>\n"
-        f"  • ទឹកប្រាក់សរុប: <b><code>{usd_str}</code></b> ({count_usd} លើក)\n\n"
-        f"🇰🇭 <b>ប្រាក់រៀល (KHR):</b>\n"
-        f"  • ទឹកប្រាក់សរុប: <b><code>{khr_str}</code></b> ({count_khr} លើក)\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>AutoSum</b>\n"
+        f"សរុបប្រតិបត្តិការថ្ងៃទី <b>{khmer_date}</b>\n"
+        f"ម៉ោងបូកសរុប <b>{now_time_12h}</b>\n"
+        f"(ដោយ: <b>AutoSum</b>)\n\n"
+        f"<pre>\n"
+        f"(៛): {int(total_khr):<8} | ប្រតិបត្តិការ: {count_khr}\n"
+        f"($): {total_usd:<8.2f} | ប្រតិបត្តិការ: {count_usd}\n"
+        f"</pre>\n"
+        f"ម៉ោងប្រតិបត្តិការ: {time_range}\n"
     )
-
-    # Yesterday VS Today Comparison section
-    if comparison:
-        diff_usd = comparison.get("diff_usd", 0.0)
-        diff_khr = comparison.get("diff_khr", 0.0)
-        diff_cnt = comparison.get("diff_count", 0)
-        yest_date = comparison.get("yesterday_date", "ម្សិលមិញ")
-
-        # USD difference
-        if diff_usd > 0:
-            usd_diff_str = f"+ ${diff_usd:,.2f} 📈 (កើនឡើង)"
-        elif diff_usd < 0:
-            usd_diff_str = f"- ${abs(diff_usd):,.2f} 📉 (ថយចុះ)"
-        else:
-            usd_diff_str = "ស្មើគ្នា ($0.00)"
-
-        # KHR difference
-        if diff_khr > 0:
-            khr_diff_str = f"+ {int(abs(diff_khr)):,} ៛ 📈 (កើនឡើង)"
-        elif diff_khr < 0:
-            khr_diff_str = f"- {int(abs(diff_khr)):,} ៛ 📉 (ថយចុះ)"
-        else:
-            khr_diff_str = "ស្មើគ្នា (0 ៛)"
-
-        # Transaction count difference
-        if diff_cnt > 0:
-            cnt_diff_str = f"+ {diff_cnt} លើក 📈 (កើនឡើង)"
-        elif diff_cnt < 0:
-            cnt_diff_str = f"- {abs(diff_cnt)} លើក 📉 (ថយចុះ)"
-        else:
-            cnt_diff_str = "ស្មើគ្នា"
-
-        msg += (
-            f"⚖️ <b>ការប្រៀបធៀបការលក់ ({yest_date} VS {target_date}):</b>\n"
-            f"  • ប្រាក់ដុល្លារ ($): <b>{usd_diff_str}</b>\n"
-            f"  • ប្រាក់រៀល (៛): <b>{khr_diff_str}</b>\n"
-            f"  • ចំនួនប្រតិបត្តិការ: <b>{cnt_diff_str}</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        )
-
-    if total_count == 0:
-        msg += "<i>📭 មិនទាន់មានប្រតិបត្តិការទូទាត់សម្រាប់ថ្ងៃនេះនៅឡើយទេ។</i>\n"
-    else:
-        msg += "✨ <i>ទិន្នន័យត្រូវបានកត់ត្រា និងបូកសរុបស្វ័យប្រវត្ត</i>"
-
     return msg
 
+def build_table_report(title: str, breakdowns: List[Dict[str, Any]], total_khr: float, total_usd: float, total_count: int, is_month: bool = False) -> str:
+    msg = f"<b>AutoSum</b>\n{title}\n\n<pre>\n"
+    msg += f"{'ថ្ងៃ':<4} {'(៛)':<10} {'($)':<8} {'សរុបចំនួន'}\n"
+    msg += "-" * 33 + "\n"
+    
+    for row in breakdowns:
+        day_str = row.get("day", "00")
+        if not is_month:
+            # If not month, the day might be just 'day', but if it's a range, maybe we just use day
+            try:
+                day_str = str(int(day_str))
+            except:
+                pass
+        else:
+            try:
+                day_str = str(int(day_str))
+            except:
+                pass
+        
+        k_val = int(row.get("total_khr", 0.0))
+        u_val = float(row.get("total_usd", 0.0))
+        cnt = int(row.get("count", 0))
+        
+        # Format columns: Day (4), KHR (10), USD (8), Count
+        msg += f"{day_str:<4} {k_val:<10} {u_val:<8.2f} {cnt}\n"
+        
+    msg += "-" * 33 + "\n"
+    msg += f"Tot.: ៛{int(total_khr):<8} ${total_usd:<8.2f} {total_count}\n</pre>\n"
+    return msg
 
 def format_yearly_summary(summary: Dict[str, Any]) -> str:
-    """
-    Formats the yearly summary message in Khmer detailing annual revenue and monthly breakdown.
-    """
     target_year = summary.get("year", "This Year")
     total_usd = summary.get("total_usd", 0.0)
-    count_usd = summary.get("count_usd", 0)
     total_khr = summary.get("total_khr", 0.0)
-    count_khr = summary.get("count_khr", 0)
     total_count = summary.get("total_count", 0)
-    active_days = summary.get("active_days", 0)
-
-    usd_str = format_currency(total_usd, "USD")
-    khr_str = format_currency(total_khr, "KHR")
-
-    msg = (
-        f"📆 <b>របាយការណ៍បូកសរុបការលក់ KHQR ប្រចាំឆ្នាំ</b>\n"
-        f"🗓 <b>ប្រចាំឆ្នាំ:</b> <code>{target_year}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🛒 <b>ចំនួនលក់សរុបពេញមួយឆ្នាំ:</b> <b>{total_count}</b> លើក\n"
-        f"📅 <b>ចំនួនថ្ងៃដែលមានការលក់:</b> <b>{active_days}</b> ថ្ងៃ\n\n"
-        f"💵 <b>សរុបប្រាក់ដុល្លារ (USD):</b> <b><code>{usd_str}</code></b> ({count_usd} លើក)\n"
-        f"🇰🇭 <b>សរុបប្រាក់រៀល (KHR):</b> <b><code>{khr_str}</code></b> ({count_khr} លើក)\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    )
-
+    
     breakdown = summary.get("monthly_breakdown", [])
-    if breakdown:
-        msg += "📅 <b>តារាងចំណូលតាមខែនីមួយៗ:</b>\n"
-        for item in breakdown:
-            m = item.get("month", "00")
-            m_usd = format_currency(item.get("total_usd", 0.0), "USD")
-            m_khr = format_currency(item.get("total_khr", 0.0), "KHR")
-            m_cnt = item.get("count", 0)
-            msg += f"  • <b>ខែ {m}:</b> {m_usd} | {m_khr} (<b>{m_cnt}</b> លើក)\n"
-        msg += "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-
-    if total_count == 0:
-        msg += f"<i>📭 មិនទាន់មានប្រតិបត្តិការសម្រាប់ឆ្នាំ {target_year} នៅឡើយទេ។</i>\n"
-    else:
-        msg += "✨ <i>របាយការណ៍បូកសរុបប្រាក់ចំណូលប្រចាំឆ្នាំស្វ័យប្រវត្ត</i>"
-
+    
+    title = f"សរុបប្រតិបត្តិការ ឆ្នាំ {target_year}"
+    msg = f"<b>AutoSum</b>\n{title}\n\n<pre>\n"
+    msg += f"{'ខែ':<4} {'(៛)':<10} {'($)':<8} {'សរុបចំនួន'}\n"
+    msg += "-" * 33 + "\n"
+    
+    for row in breakdown:
+        m_str = row.get("month", "00")
+        try:
+            m_str = str(int(m_str))
+        except:
+            pass
+        k_val = int(row.get("total_khr", 0.0))
+        u_val = float(row.get("total_usd", 0.0))
+        cnt = int(row.get("count", 0))
+        msg += f"{m_str:<4} {k_val:<10} {u_val:<8.2f} {cnt}\n"
+        
+    msg += "-" * 33 + "\n"
+    msg += f"Tot.: ៛{int(total_khr):<8} ${total_usd:<8.2f} {total_count}\n</pre>\n"
     return msg
 
-
 def format_monthly_summary(summary: Dict[str, Any]) -> str:
-    """
-    Formats the monthly summary message in Khmer detailing total revenue and sales volume.
-    """
     target_month = summary.get("month", "This Month")
+    khmer_month = format_khmer_month(target_month)
     total_usd = summary.get("total_usd", 0.0)
-    count_usd = summary.get("count_usd", 0)
-    
     total_khr = summary.get("total_khr", 0.0)
-    count_khr = summary.get("count_khr", 0)
-    
     total_count = summary.get("total_count", 0)
-    active_days = summary.get("active_days", 0)
+    breakdowns = summary.get("daily_breakdown", [])
+    
+    title = f"សរុបប្រតិបត្តិការ {khmer_month}"
+    return build_table_report(title, breakdowns, total_khr, total_usd, total_count, is_month=True)
 
-    usd_str = format_currency(total_usd, "USD")
-    khr_str = format_currency(total_khr, "KHR")
-
-    return (
-        f"📈 <b>របាយការណ៍បូកសរុបការលក់ KHQR ប្រចាំខែ</b>\n"
-        f"🗓 <b>ប្រចាំខែ:</b> <code>{target_month}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🛒 <b>ចំនួនលក់សរុបពេញមួយខែ:</b> <b>{total_count}</b> លើក\n"
-        f"📅 <b>ចំនួនថ្ងៃដែលមានការលក់:</b> <b>{active_days}</b> ថ្ងៃ\n\n"
-        f"💵 <b>សរុបប្រាក់ដុល្លារ (USD):</b> <b><code>{usd_str}</code></b> ({count_usd} លើក)\n"
-        f"🇰🇭 <b>សរុបប្រាក់រៀល (KHR):</b> <b><code>{khr_str}</code></b> ({count_khr} លើក)\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"✨ <i>របាយការណ៍បូកសរុបប្រាក់ចំណូល និងបរិមាណលក់ប្រចាំខែ</i>"
-    )
-
-
-def format_range_summary(summary: Dict[str, Any], title_prefix: str = "៧ថ្ងៃចុងក្រោយ") -> str:
-    """
-    Formats multi-day/weekly summary report in Khmer.
-    """
+def format_range_summary(summary: Dict[str, Any], title_prefix: str = "") -> str:
     start_date = summary.get("start_date", "")
     end_date = summary.get("end_date", "")
+    khmer_start = format_khmer_date(start_date)
+    khmer_end = format_khmer_date(end_date)
+    
+    # Try to simplify range e.g. "28-3 សីហា 2025"
+    title_date = f"{khmer_start} - {khmer_end}"
+    try:
+        sy, sm, sd = start_date.split('-')
+        ey, em, ed = end_date.split('-')
+        if sy == ey and sm == em:
+            title_date = f"{int(sd)}-{int(ed)} {MONTHS_KH.get(sm, sm)} {sy}"
+        elif sy == ey:
+            title_date = f"{int(sd)} {MONTHS_KH.get(sm, sm)} - {int(ed)} {MONTHS_KH.get(em, em)} {sy}"
+    except:
+        pass
+        
     total_usd = summary.get("total_usd", 0.0)
-    count_usd = summary.get("count_usd", 0)
-    
     total_khr = summary.get("total_khr", 0.0)
-    count_khr = summary.get("count_khr", 0)
-    
     total_count = summary.get("total_count", 0)
-
-    usd_str = format_currency(total_usd, "USD")
-    khr_str = format_currency(total_khr, "KHR")
-
-    return (
-        f"📊 <b>របាយការណ៍បូកសរុបការលក់ KHQR ({title_prefix})</b>\n"
-        f"🗓 <b>ចន្លោះកាលបរិច្ឆេទ:</b> <code>{start_date}</code> ដល់ <code>{end_date}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🛒 <b>ចំនួនលក់សរុប:</b> <b>{total_count}</b> លើក\n\n"
-        f"💵 <b>សរុបប្រាក់ដុល្លារ (USD):</b> <b><code>{usd_str}</code></b> ({count_usd} លើក)\n"
-        f"🇰🇭 <b>សរុបប្រាក់រៀល (KHR):</b> <b><code>{khr_str}</code></b> ({count_khr} លើក)\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    )
-
+    breakdowns = summary.get("daily_breakdown", [])
+    
+    title = f"សរុបប្រតិបត្តិការ ថ្ងៃទី {title_date}"
+    return build_table_report(title, breakdowns, total_khr, total_usd, total_count)
 
 def format_recent_transactions(transactions: List[Dict[str, Any]], limit: int = 5) -> str:
-    """
-    Formats the list of recent transactions in Khmer.
-    """
     if not transactions:
-        return (
-            "🧾 <b>ប្រវត្តិប្រតិបត្តិការចុងក្រោយ (Recent History)</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "<i>📭 មិនទាន់មានប្រវត្តិប្រតិបត្តិការទូទាត់ក្នុងប្រព័ន្ធនៅឡើយទេ។</i>"
-        )
-
-    count = len(transactions)
-    lines = [
-        f"🧾 <b>ប្រវត្តិប្រតិបត្តិការចុងក្រោយ ({count} លើក)</b>\n",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    ]
-    for idx, txn in enumerate(transactions, 1):
+        return "<b>AutoSum</b>\nមិនទាន់មានប្រតិបត្តិការ។"
+    msg = "<b>AutoSum</b>\nប្រតិបត្តិការចុងក្រោយ:\n\n<pre>\n"
+    for txn in transactions:
         amt_str = format_currency(txn["amount"], txn["currency"])
-        payer = txn.get("payer_name") or "ភ្ញៀវ (Customer)"
-        bank = txn.get("bank_name") or "KHQR"
-        ref = txn.get("ref_code") or "N/A"
-        time_str = txn.get("transaction_time") or ""
-        lines.append(
-            f"<b>{idx}. {amt_str}</b> ({bank})\n"
-            f"   👤 អតិថិជន: <b>{payer}</b>\n"
-            f"   🔖 លេខកូដយោង: <code>{ref}</code>\n"
-            f"   ⏰ ម៉ោង: <code>{time_str}</code>\n\n"
-        )
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-    lines.append(f"💡 <i>វាយ <code>/history 10</code> ដើម្បីមើលច្រើនជាងនេះ</i>")
-    return "".join(lines)
-
+        time_str = txn.get("transaction_time", "")[-8:-3] # HH:MM
+        msg += f"{time_str} {amt_str}\n"
+    msg += "</pre>"
+    return msg

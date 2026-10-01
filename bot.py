@@ -72,6 +72,23 @@ def get_menu_buttons():
         ]
     ]
 
+def get_months_menu_buttons():
+    """Returns interactive inline buttons for selecting a month."""
+    import datetime
+    year = datetime.datetime.now().year
+    months_en = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    buttons = []
+    for i in range(0, 12, 2):
+        row = []
+        for j in range(2):
+            if i + j < 12:
+                month_name = months_en[i + j]
+                month_num = f"{i + j + 1:02d}"
+                row.append(Button.inline(f"{month_name} {year}", data=f"sel_month_{year}-{month_num}".encode()))
+        buttons.append(row)
+    buttons.append([Button.inline("ត្រឡប់ក្រោយ", data=b"btn_today")])
+    return buttons
+
 
 async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[Any] = None):
     """Generates and sends the daily summary report to the target chat with sales comparison."""
@@ -1022,10 +1039,20 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
 
         elif data == b"btn_month":
+            # Just show the current month as before, or we could redirect to menu
             current_month = get_cambodia_now().strftime("%Y-%m")
             summary = db.get_summary_by_month(current_month)
             msg = format_monthly_summary(summary)
             await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
+
+        elif data.startswith(b"sel_month_"):
+            target_month = data.decode().split("_")[2]
+            summary = db.get_summary_by_month(target_month)
+            msg = format_monthly_summary(summary)
+            await safe_edit_or_respond(event, msg, buttons=get_months_menu_buttons())
+
+        elif data == b"btn_main_menu":
+            await safe_edit_or_respond(event, "ជ្រើសរើសខែ:", buttons=get_months_menu_buttons())
 
         elif data == b"btn_year":
             current_year = get_cambodia_now().strftime("%Y")
@@ -1383,6 +1410,14 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
                 "<i>រាល់អ្នកផ្សេងដែលចុចមើលរបាយការណ៍ នឹងត្រូវបញ្ជូនឈ្មោះ និង Telegram ID មកសុំការ Approve ពី Avata ទាំងអស់។</i>",
                 parse_mode="html"
             )
+            return
+
+        # /menu command to display month selector
+        if cmd in ("/menu", ".menu"):
+            if not check_permission(event.sender_id, chat_id):
+                await event.reply("⛔ អ្នកគ្មានសិទ្ធិមើលរបាយការណ៍ទេ!", parse_mode="html")
+                return
+            await event.reply("ជ្រើសរើសខែ:", buttons=get_months_menu_buttons())
             return
 
         # 4c. RBAC Group Member Management: /manage or /group or /members (Bot Owner Avata only)

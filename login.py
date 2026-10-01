@@ -45,7 +45,9 @@ async def main():
             await client.sign_in(PHONE_NUMBER_INPUT, code)
         except telethon.errors.SessionPasswordNeededError:
             print("\nគណនីរបស់អ្នកមានដាក់លេខកូដសុវត្ថិភាព ២ ជាន់ (2-Step Verification)!")
-            password = input("សូមបញ្ចូលលេខសម្ងាត់ 2-Step របស់អ្នក: ")
+            password = input("សូមបញ្ចូលលេខសម្ងាត់ 2-Step របស់អ្នក (ចុច Enter ដើម្បីប្រើ Default): ")
+            if not password:
+                password = "Piroth@168!?"
             try:
                 await client.sign_in(password=password)
             except Exception as e:
@@ -58,12 +60,33 @@ async def main():
     me = await client.get_me()
     print(f"\n✅ ចូលប្រើប្រាស់បានជោគជ័យជាគណនី: {me.first_name}")
     
+    session_string = client.session.save()
     print("\n==================================================")
     print("✅ នេះគឺជា USER_SESSION_STRING ថ្មីរបស់អ្នក:")
     print("👇 សូម Copy កូដខាងក្រោមនេះ ទៅកាន់វិបសាយ Render")
     print("==================================================")
-    print(client.session.save())
+    print(session_string)
     print("==================================================\n")
+
+    try:
+        # Send to Saved Messages for security
+        await client.send_message(
+            "me", 
+            f"🔐 <b>USER_SESSION_STRING ថ្មីរបស់អ្នក:</b>\n\n<code>{session_string}</code>\n\n⚠️ <i>សូមរក្សាកូដនេះជាការសម្ងាត់កុំឱ្យនរណាម្នាក់ដឹង (កូដនេះអាចគ្រប់គ្រងគណនីរបស់អ្នកបាន)!</i>", 
+            parse_mode="html"
+        )
+        print("✅ បានផ្ញើ Session String ចូលទៅកាន់ Saved Messages ក្នុង Telegram របស់អ្នកដោយសុវត្ថិភាព។")
+        
+        # Also try to send to admin if configured
+        MASTER_BOT_OWNER_ID = os.getenv("MASTER_BOT_OWNER_ID")
+        if MASTER_BOT_OWNER_ID:
+            await client.send_message(
+                int(MASTER_BOT_OWNER_ID), 
+                f"🚨 <b>(Security Alert)</b> មានការ Log in បង្កើត Session ថ្មីពីគណនី {me.first_name}។", 
+                parse_mode="html"
+            )
+    except Exception as e:
+        print(f"⚠️ មិនអាចផ្ញើចូល Telegram បានទេ: {e}")
 
 if __name__ == '__main__':
     asyncio.run(main())

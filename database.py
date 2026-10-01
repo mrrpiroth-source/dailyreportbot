@@ -104,21 +104,21 @@ class Database:
             self.execute_sql(cursor, """
                 CREATE TABLE IF NOT EXISTS authorized_users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
+                    user_id BIGINT NOT NULL,
                     username TEXT,
                     full_name TEXT,
                     role TEXT DEFAULT 'staff', -- 'owner', 'admin', 'staff'
-                    chat_id INTEGER DEFAULT 0,
+                    chat_id BIGINT DEFAULT 0,
                     chat_title TEXT DEFAULT '',
                     group_role TEXT DEFAULT 'សមាជិក', -- 'owner', 'admin', 'សមាជិក'
-                    added_by INTEGER,
+                    added_by BIGINT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(user_id, chat_id)
                 );
             """)
             # Seamless migrations for existing tables
             for col_sql in [
-                "ALTER TABLE authorized_users ADD COLUMN chat_id INTEGER DEFAULT 0;",
+                "ALTER TABLE authorized_users ADD COLUMN chat_id BIGINT DEFAULT 0;",
                 "ALTER TABLE authorized_users ADD COLUMN chat_title TEXT DEFAULT '';",
                 "ALTER TABLE authorized_users ADD COLUMN group_role TEXT DEFAULT 'សមាជិក';"
             ]:
@@ -241,6 +241,17 @@ class Database:
             count_khr = int(khr_row["count"]) if khr_row else 0
             avg_khr = float(khr_row["avg_amount"]) if khr_row else 0.0
 
+            self.execute_sql(cursor, """
+                SELECT 
+                    MIN(SUBSTR(transaction_time, 12, 5)) as min_time,
+                    MAX(SUBSTR(transaction_time, 12, 5)) as max_time
+                FROM transactions
+                WHERE transaction_time LIKE ?
+            """, (date_pattern,))
+            time_row = cursor.fetchone()
+            min_time = time_row["min_time"] if time_row and time_row["min_time"] else None
+            max_time = time_row["max_time"] if time_row and time_row["max_time"] else None
+
             return {
                 "date": target_date,
                 "total_usd": total_usd,
@@ -249,7 +260,9 @@ class Database:
                 "total_khr": total_khr,
                 "count_khr": count_khr,
                 "avg_khr": avg_khr,
-                "total_count": count_usd + count_khr
+                "total_count": count_usd + count_khr,
+                "min_time": min_time,
+                "max_time": max_time
             }
         finally:
             conn.close()
@@ -304,6 +317,32 @@ class Database:
             active_days_row = cursor.fetchone()
             active_days = int(active_days_row["active_days"]) if active_days_row else 0
 
+            # Daily breakdown
+            self.execute_sql(cursor, """
+                SELECT 
+                    SUBSTR(transaction_time, 9, 2) as day_num,
+                    currency,
+                    COALESCE(SUM(amount), 0) as total,
+                    COUNT(id) as count
+                FROM transactions
+                WHERE transaction_time LIKE ?
+                GROUP BY SUBSTR(transaction_time, 9, 2), currency
+                ORDER BY day_num ASC
+            """, (month_pattern,))
+            breakdown_rows = cursor.fetchall()
+            
+            days_dict = {}
+            for r in breakdown_rows:
+                d = r["day_num"]
+                curr = r["currency"]
+                if d not in days_dict:
+                    days_dict[d] = {"day": d, "total_usd": 0.0, "total_khr": 0.0, "count": 0}
+                days_dict[d]["count"] += int(r["count"])
+                if curr == "USD":
+                    days_dict[d]["total_usd"] += float(r["total"])
+                elif curr == "KHR":
+                    days_dict[d]["total_khr"] += float(r["total"])
+
             return {
                 "month": target_month,
                 "total_usd": total_usd,
@@ -313,7 +352,8 @@ class Database:
                 "count_khr": count_khr,
                 "avg_khr": avg_khr,
                 "total_count": count_usd + count_khr,
-                "active_days": active_days
+                "active_days": active_days,
+                "daily_breakdown": list(days_dict.values())
             }
         finally:
             conn.close()
@@ -359,6 +399,32 @@ class Database:
             count_khr = int(khr_row["count"]) if khr_row else 0
             avg_khr = float(khr_row["avg_amount"]) if khr_row else 0.0
 
+            # Daily breakdown
+            self.execute_sql(cursor, """
+                SELECT 
+                    SUBSTR(transaction_time, 9, 2) as day_num,
+                    currency,
+                    COALESCE(SUM(amount), 0) as total,
+                    COUNT(id) as count
+                FROM transactions
+                WHERE SUBSTR(transaction_time, 1, 10) BETWEEN ? AND ?
+                GROUP BY SUBSTR(transaction_time, 9, 2), currency
+                ORDER BY day_num ASC
+            """, (start_date, today_str))
+            breakdown_rows = cursor.fetchall()
+            
+            days_dict = {}
+            for r in breakdown_rows:
+                d = r["day_num"]
+                curr = r["currency"]
+                if d not in days_dict:
+                    days_dict[d] = {"day": d, "total_usd": 0.0, "total_khr": 0.0, "count": 0}
+                days_dict[d]["count"] += int(r["count"])
+                if curr == "USD":
+                    days_dict[d]["total_usd"] += float(r["total"])
+                elif curr == "KHR":
+                    days_dict[d]["total_khr"] += float(r["total"])
+
             return {
                 "start_date": start_date,
                 "end_date": today_str,
@@ -369,7 +435,8 @@ class Database:
                 "total_khr": total_khr,
                 "count_khr": count_khr,
                 "avg_khr": avg_khr,
-                "total_count": count_usd + count_khr
+                "total_count": count_usd + count_khr,
+                "daily_breakdown": list(days_dict.values())
             }
         finally:
             conn.close()
