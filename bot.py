@@ -462,16 +462,17 @@ async def notify_owner_of_access_request(
     chat_id: int,
     user_entity: Optional[Any] = None,
     source: str = "command",
-    group_role: Optional[str] = None
+    group_role: Optional[str] = None,
+    force: bool = False
 ):
     """
     Sends an immediate direct message to Bot Owner(s) when an unauthorized member
-    requests access or attempts to view reports, with 1-click [Approve] / [Deny] buttons.
+    requests access or attempts to view reports, with 1-click [Approve] / [Reject] buttons.
     Organized strictly by group with user's role confirmation (owner, admin, or member).
     """
     now = time.time()
-    # Debounce: don't spam owner if same user clicks repeatedly within 120 seconds (2 minutes)
-    if user_id in last_request_time and (now - last_request_time[user_id]) < 120:
+    # Debounce: don't spam owner if same user clicks repeatedly within 60 seconds (unless forced)
+    if not force and user_id in last_request_time and (now - last_request_time[user_id]) < 60:
         return
 
     last_request_time[user_id] = now
@@ -503,12 +504,13 @@ async def notify_owner_of_access_request(
             full_name = f"User {user_id}"
 
     # Extract chat title
-    chat_title = "Meeting cafe ☕"
-    try:
-        chat_ent = await client.get_entity(chat_id)
-        chat_title = getattr(chat_ent, "title", "Group") or "Meeting cafe ☕"
-    except Exception:
-        pass
+    chat_title = "Private Chat (ផ្ញើផ្ទាល់)" if chat_id == 0 else "Meeting cafe ☕"
+    if chat_id != 0:
+        try:
+            chat_ent = await client.get_entity(chat_id)
+            chat_title = getattr(chat_ent, "title", "Group") or "Meeting cafe ☕"
+        except Exception:
+            pass
 
     # Save to memory cache organized by group and role
     pending_requests[user_id] = {
@@ -523,22 +525,21 @@ async def notify_owner_of_access_request(
     current_time_str = get_cambodia_now().strftime("%Y-%m-%d %H:%M:%S")
 
     alert_msg = (
-        "🔔 <b>មានសំណើសុំសិទ្ធិមើលរបាយការណ៍ហិរញ្ញវត្ថុថ្មី!</b>\n\n"
-        f"👥 <b>មកពី Group:</b> {chat_title}\n"
+        "🔔 <b>មានសំណើសុំចុះឈ្មោះ / សុំសិទ្ធិមើលរបាយការណ៍ថ្មី!</b>\n\n"
+        f"👥 <b>មកពី:</b> {chat_title}\n"
         f"👤 <b>ឈ្មោះ:</b> {full_name} ({group_role})\n"
         f"🏷️ <b>Username:</b> {username_str}\n"
         f"🔢 <b>Telegram User ID:</b> <code>{user_id}</code>\n"
         f"⏰ <b>ម៉ោង:</b> {current_time_str}\n\n"
-        "👉 <i>តើលោកអ្នក (Avata) យល់ព្រមអនុញ្ញាតឱ្យគណនីនេះមើលរបាយការណ៍លក់ក្នុង Group នេះដែរឬទេ?</i>"
+        "👉 <i>តើលោកអ្នកយល់ព្រមអនុញ្ញាត (Approve) ឬបដិសេធ (Reject) សំណើរបស់គណនីនេះដែរឬទេ?</i>"
     )
 
     approval_buttons = [
         [
             Button.inline("✅ អនុញ្ញាត (Approve)", data=f"appr_{user_id}".encode()),
-            Button.inline("❌ មិនអនុញ្ញាត (Not Approve)", data=f"deny_{user_id}".encode()),
+            Button.inline("❌ បដិសេធ (Reject)", data=f"deny_{user_id}".encode()),
         ],
         [
-            Button.inline(f"👥 គ្រប់គ្រងសមាជិក Group {chat_title[:12]}", data=f"mgm_grp_{chat_title[:20]}".encode()),
             Button.inline("👑 Admin Panel", data=b"admin_panel")
         ]
     ]
@@ -778,21 +779,33 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
                 f"👥 Group: <b>{chat_title}</b>\n"
                 f"👤 បុគ្គលិក: <b>{target_name} ({group_role})</b> (<code>{target_id}</code>)\n"
                 f"🛡️ តួនាទី: <b>STAFF (បុគ្គលិកមានសិទ្ធិ)</b>\n"
-                f"⏰ ម៉ោងអនុម័ត: <b>{now_str}</b>\n"
-                f"👑 អនុម័តដោយម្ចាស់ Bot: <b>AVATA 🇸🇸</b>\n\n"
-                f"<i>បុគ្គលិកនេះអាចមើលរបាយការណ៍ហិរញ្ញវត្ថុក្នុង Group {chat_title} បានហើយ។</i>"
+                f"⏰ ម៉ោងអនុម័ត: <b>{now_str}</b>\n\n"
+                f"<i>បុគ្គលិកនេះអាចមើលរបាយការណ៍ហិរញ្ញវត្ថុបានហើយ។</i>"
             )
             await event.edit(approved_text, parse_mode="html")
             await event.answer("✅ បានអនុម័តជោគជ័យ (Approved)!")
 
+            # Send DM directly to target user
+            try:
+                await bot_client.send_message(
+                    target_id,
+                    "🎉 <b>ការចុះឈ្មោះរបស់អ្នកត្រូវបានអនុម័ត! (Approved)</b>\n\n"
+                    "Admin បានអនុញ្ញាតឱ្យលោកអ្នកមើលរបាយការណ៍ហិរញ្ញវត្ថុបានហើយ។\n\n"
+                    "👉 លោកអ្នកអាចចុច <code>/menu</code> ឬ <code>/today</code> ដើម្បីពិនិត្យរបាយការណ៍លក់៖",
+                    parse_mode="html",
+                    buttons=get_menu_buttons()
+                )
+            except Exception as e:
+                logger.warning(f"Could not DM approved user {target_id}: {e}")
+
             # Announce in the group chat so staff knows immediately
             notify_chat = req_info.get("chat_id") or config.MONITOR_CHAT_ID
-            if notify_chat:
+            if notify_chat and notify_chat != 0:
                 try:
                     await bot_client.send_message(
                         notify_chat,
                         f"🎉 <b>ការស្នើសុំសិទ្ធិត្រូវបានអនុម័ត! (Approved)</b>\n\n"
-                        f"👤 <b>{target_name} ({group_role})</b> ត្រូវបានម្ចាស់ Bot (Avata) អនុញ្ញាតឱ្យមើលរបាយការណ៍ហិរញ្ញវត្ថុក្នុង Group នេះបានហើយ។\n\n"
+                        f"👤 <b>{target_name} ({group_role})</b> ត្រូវបាន Admin អនុញ្ញាតឱ្យមើលរបាយការណ៍ហិរញ្ញវត្ថុក្នុង Group នេះបានហើយ។\n\n"
                         f"👉 លោកអ្នកអាចចុច <code>/today</code> ឬប៊ូតុងខាងក្រោមដើម្បីពិនិត្យការលក់:",
                         parse_mode="html",
                         buttons=get_menu_buttons()
@@ -803,7 +816,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
 
         elif data.startswith(b"deny_"):
             if not is_admin(sender_id, event.chat_id):
-                await event.answer("⛔ មានតែម្ចាស់អាជីវកម្មប៉ុណ្ណោះដែលអាចបដិសេធបាន!", alert=True)
+                await event.answer("⛔ មានតែ Admin ប៉ុណ្ណោះដែលអាចបដិសេធបាន!", alert=True)
                 return
 
             target_id = int(data.decode().split("_")[1])
@@ -811,11 +824,22 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             target_name = req_info.get("full_name") or f"User {target_id}"
 
             denied_text = (
-                f"❌ <b>មិនអនុញ្ញាត (Not Approved)</b>\n\n"
-                f"បុគ្គលិក <b>{target_name}</b> (<code>{target_id}</code>) មិនត្រូវបានអនុញ្ញាតឱ្យមើលរបាយការណ៍ឡើយ។"
+                f"❌ <b>បានបដិសេធសំណើ (Rejected)</b>\n\n"
+                f"បុគ្គលិក <b>{target_name}</b> (<code>{target_id}</code>) ត្រូវបានបដិសេធសិទ្ធិមើលរបាយការណ៍។"
             )
             await event.edit(denied_text, parse_mode="html")
-            await event.answer("❌ មិនអនុញ្ញាត (Not Approved)!")
+            await event.answer("❌ បានបដិសេធសំណើ (Rejected)!")
+
+            # Notify the user directly
+            try:
+                await bot_client.send_message(
+                    target_id,
+                    f"❌ <b>ការស្នើសុំចុះឈ្មោះមិនត្រូវបានអនុម័តឡើយ (Rejected)</b>\n\n"
+                    f"Admin បានបដិសេធសំណើចុះឈ្មោះរបស់អ្នក។ ប្រសិនបើមានចម្ងល់ សូមទាក់ទងមកកាន់ {getattr(config, 'ADMIN_CONTACT_USERNAME', '@avatalamiyamal')}។",
+                    parse_mode="html"
+                )
+            except Exception as e:
+                logger.warning(f"Could not DM denied user {target_id}: {e}")
             return
 
         # Handle Group Member Management Callbacks (Avata Bot Owner only)
@@ -1173,7 +1197,43 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             await safe_edit_or_respond(event, "📊 <b>របាយការណ៍ (Reports)</b>\nសូមជ្រើសរើសប្រភេទរបាយការណ៍ខាងក្រោម៖", buttons=get_reports_menu_buttons())
             
         elif data == b"btn_register":
-            await safe_edit_or_respond(event, "📝 <b>ការចុះឈ្មោះ (Registration)</b>\nសូមទំនាក់ទំនង Admin ដើម្បីរៀបចំការចុះឈ្មោះ។", buttons=get_menu_buttons())
+            if is_admin(sender_id, event.chat_id) or check_permission(sender_id, event.chat_id):
+                await safe_edit_or_respond(
+                    event,
+                    "✅ <b>លោកអ្នកមានសិទ្ធិប្រើប្រាស់រួចរាល់ហើយ!</b>\n\n"
+                    "លោកអ្នកអាចចុចមើលរបាយការណ៍បានភ្លាមៗ។",
+                    buttons=get_menu_buttons()
+                )
+                await event.answer("✅ លោកអ្នកមានសិទ្ធិរួចរាល់ហើយ!")
+                return
+
+            sender_ent = await event.get_sender()
+            await notify_owner_of_access_request(
+                client=bot_client,
+                user_id=sender_id,
+                chat_id=event.chat_id or 0,
+                user_entity=sender_ent,
+                source="btn_register",
+                force=True
+            )
+
+            u_name = "User"
+            if sender_ent:
+                first = getattr(sender_ent, "first_name", "") or ""
+                last = getattr(sender_ent, "last_name", "") or ""
+                u_name = f"{first} {last}".strip() or "User"
+
+            now_time = get_cambodia_now().strftime("%I:%M %p")
+            reg_confirm = (
+                "📩 <b>បានបញ្ជូនសំណើចុះឈ្មោះទៅកាន់ Admin រួចរាល់!</b>\n\n"
+                f"👤 <b>ឈ្មោះ:</b> {u_name}\n"
+                f"🔢 <b>Telegram User ID:</b> <code>{sender_id}</code>\n"
+                f"⏰ <b>ម៉ោងស្នើសុំ:</b> {now_time}\n\n"
+                "⏳ <i>សំណើរបស់អ្នកត្រូវបានរុញទៅកាន់ Admin ដើម្បីត្រួតពិនិត្យ និងអនុម័ត (Approve / Reject)។ សូមរង់ចាំការឆ្លើយតប!</i>"
+            )
+            await safe_edit_or_respond(event, reg_confirm, buttons=get_menu_buttons())
+            await event.answer("📩 បានផ្ញើសំណើទៅកាន់ Admin រួចរាល់!", alert=True)
+            return
             
         elif data == b"btn_contact":
             await safe_edit_or_respond(event, "☎️ <b>ទំនាក់ទំនង Admin</b>\nTelegram: @avatalamiyamal", buttons=get_menu_buttons())
@@ -1677,18 +1737,39 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
 
         # Registration command
         if cmd in ("/register", ".register"):
+            if is_admin(event.sender_id, chat_id) or check_permission(event.sender_id, chat_id):
+                await safe_reply(
+                    event,
+                    "✅ <b>លោកអ្នកមានសិទ្ធិប្រើប្រាស់រួចរាល់ហើយ!</b>\n\n"
+                    "លោកអ្នកអាចចុចមើលរបាយការណ៍បានភ្លាមៗ។",
+                    parse_mode="html",
+                    buttons=get_menu_buttons()
+                )
+                return
+
+            sender_ent = await event.get_sender()
+            await notify_owner_of_access_request(
+                client=bot_client,
+                user_id=event.sender_id,
+                chat_id=chat_id or 0,
+                user_entity=sender_ent,
+                source="cmd_register",
+                force=True
+            )
+
             name = "User"
-            try:
-                sender = await event.get_sender()
-                if sender:
-                    name = getattr(sender, 'first_name', 'User') or 'User'
-            except Exception:
-                pass
+            if sender_ent:
+                first = getattr(sender_ent, 'first_name', '') or ''
+                last = getattr(sender_ent, 'last_name', '') or ''
+                name = f"{first} {last}".strip() or 'User'
+
+            now_time = get_cambodia_now().strftime("%I:%M %p")
             reg_text = (
-                "📝 <b>ការចុះឈ្មោះប្រើប្រាស់ (Registration)</b>\n\n"
+                "📩 <b>បានបញ្ជូនសំណើចុះឈ្មោះទៅកាន់ Admin រួចរាល់!</b>\n\n"
                 f"👤 <b>ឈ្មោះ:</b> {name}\n"
-                f"🔢 <b>Telegram User ID:</b> <code>{event.sender_id}</code>\n\n"
-                "💡 <i>ដើម្បីចុះឈ្មោះ ឬស្នើសុំបើកសិទ្ធិមើលរបាយការណ៍ សូមផ្ញើ User ID នេះទៅកាន់ម្ចាស់ Bot (Admin)។</i>"
+                f"🔢 <b>Telegram User ID:</b> <code>{event.sender_id}</code>\n"
+                f"⏰ <b>ម៉ោងស្នើសុំ:</b> {now_time}\n\n"
+                "⏳ <i>សំណើរបស់អ្នកត្រូវបានរុញទៅកាន់ Admin ដើម្បីត្រួតពិនិត្យ និងអនុម័ត (Approve / Reject)។ សូមរង់ចាំការឆ្លើយតប!</i>"
             )
             await safe_reply(event, reg_text, parse_mode="html", buttons=get_menu_buttons())
             return
