@@ -77,8 +77,32 @@ def get_reports_menu_buttons():
             Button.inline("📈 ប្រចាំខែ", data=b"btn_month"),
             Button.inline("📆 ប្រចាំឆ្នាំ", data=b"btn_year")
         ],
-        [Button.inline("🔙 ត្រឡប់ក្រោយ", data=b"btn_back_main")]
+        [Button.inline("📅 ថ្ងៃផ្សេងទៀត", data=b"btn_other_days")],
+        [
+            Button.inline("🔙 ត្រឡប់ក្រោយ", data=b"btn_back_main"),
+            Button.inline("❌ បិទ", data=b"btn_exit")
+        ]
     ]
+
+def get_days_menu_buttons():
+    """Returns interactive inline buttons for selecting a specific day."""
+    import datetime
+    from reporter import get_cambodia_now
+    now = get_cambodia_now()
+    buttons = []
+    
+    # Generate last 6 days
+    for i in range(1, 7):
+        d = now - datetime.timedelta(days=i)
+        date_str = d.strftime("%Y-%m-%d")
+        display_str = f"{d.day}/{d.month}/{d.year}"
+        buttons.append([Button.inline(f"📅 ថ្ងៃទី {display_str}", data=f"sel_day_{date_str}".encode())])
+        
+    buttons.append([
+        Button.inline("🔙 ត្រឡប់ក្រោយ", data=b"btn_reports_menu"),
+        Button.inline("❌ បិទ", data=b"btn_exit")
+    ])
+    return buttons
 
 def get_months_menu_buttons():
     """Returns interactive inline buttons for selecting a month."""
@@ -1123,11 +1147,15 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             )
             await event.answer(msg, alert=True)
 
-        elif data == b"btn_yesterday":
-            yesterday = (get_cambodia_now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-            summary = db.get_summary_by_date(yesterday)
-            msg = format_daily_summary(summary, title_prefix="ម្សិលមិញ (Yesterday)")
-            await safe_edit_or_respond(event, msg, buttons=get_reports_menu_buttons())
+        elif data == b"btn_yesterday" or data == b"btn_other_days":
+            await safe_edit_or_respond(event, "ជ្រើសរើសថ្ងៃដែលអ្នកចង់មើល៖", buttons=get_days_menu_buttons())
+
+        elif data.startswith(b"sel_day_"):
+            target_date = data.decode().split("_")[2]
+            summary = db.get_summary_by_date(target_date)
+            # Send daily summary buttons for this specific day, and pass target_date for compare feature
+            msg = format_daily_summary(summary, title_prefix=f"ថ្ងៃទី {target_date}")
+            await safe_edit_or_respond(event, msg, buttons=get_daily_summary_buttons(summary, date_str=target_date))
 
         elif data == b"btn_week":
             summary = db.get_summary_by_days(7)
