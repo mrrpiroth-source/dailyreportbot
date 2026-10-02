@@ -106,10 +106,7 @@ def build_table_report(title: str, breakdowns: List[Dict[str, Any]], total_khr: 
         cnt = int(row.get("count", 0))
         
         # Format as list: 📅 ថ្ងៃទី X: ៛1000 | $1.00 | 5 លក់
-        if is_month:
-            msg += f"📅 ថ្ងៃទី {day_str}: ៛{k_val:,} | ${u_val:,.2f} | {cnt} លក់\n"
-        else:
-            msg += f"📅 ថ្ងៃ {day_str}: ៛{k_val:,} | ${u_val:,.2f} | {cnt} លក់\n"
+        msg += f"📅 ថ្ងៃទី {day_str}: ៛{k_val:,} | ${u_val:,.2f} | {cnt} លក់\n"
         
     msg += "\n"
     msg += f"<b>Tot.: ៛{int(total_khr):,} | ${total_usd:,.2f} | {total_count} លក់</b>\n"

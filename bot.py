@@ -1195,20 +1195,20 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             # Re-use format_range_summary or format_daily_summary string output format
             from reporter import format_range_summary
             msg = format_range_summary(summary, title_prefix=f"{start_date} ដល់ {end_date}")
-            await safe_edit_or_respond(event, msg, buttons=get_general_summary_buttons(summary))
+            await safe_edit_or_respond(event, msg, buttons=get_back_and_close_buttons())
 
         elif data == b"btn_month":
             # Just show the current month as before, or we could redirect to menu
             current_month = get_cambodia_now().strftime("%Y-%m")
             summary = db.get_summary_by_month(current_month)
             msg = format_monthly_summary(summary)
-            await safe_edit_or_respond(event, msg, buttons=get_general_summary_buttons(summary))
+            await safe_edit_or_respond(event, msg, buttons=get_back_and_close_buttons())
 
         elif data.startswith(b"sel_month_"):
             target_month = data.decode().split("_")[2]
             summary = db.get_summary_by_month(target_month)
             msg = format_monthly_summary(summary)
-            await safe_edit_or_respond(event, msg, buttons=get_general_summary_buttons(summary))
+            await safe_edit_or_respond(event, msg, buttons=get_back_and_close_buttons())
 
         elif data == b"btn_main_menu":
             await safe_edit_or_respond(event, "ជ្រើសរើសខែ:", buttons=get_months_menu_buttons())
@@ -1217,7 +1217,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             current_year = get_cambodia_now().strftime("%Y")
             summary = db.get_summary_by_year(current_year)
             msg = format_yearly_summary(summary)
-            await safe_edit_or_respond(event, msg, buttons=get_general_summary_buttons(summary))
+            await safe_edit_or_respond(event, msg, buttons=get_back_and_close_buttons())
 
         elif data == b"btn_history":
             txns = db.get_recent_transactions(limit=5)
