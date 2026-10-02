@@ -364,7 +364,16 @@ class Database:
         """
         start_date = (get_cambodia_now() - datetime.timedelta(days=days - 1)).strftime("%Y-%m-%d")
         today_str = get_cambodia_today_str()
+        
+        summary = self.get_summary_by_date_range(start_date, today_str)
+        summary["days"] = days
+        return summary
 
+    def get_summary_by_date_range(self, start_date: str, end_date: str) -> Dict[str, Any]:
+        """
+        Calculates summary for a specific date range (inclusive).
+        Dates should be in 'YYYY-MM-DD' format.
+        """
         conn = self.get_connection()
         try:
             cursor = self.get_cursor(conn)
@@ -378,7 +387,7 @@ class Database:
                 FROM transactions
                 WHERE currency = 'USD' 
                   AND SUBSTR(transaction_time, 1, 10) BETWEEN ? AND ?
-            """, (start_date, today_str))
+            """, (start_date, end_date))
             usd_row = cursor.fetchone()
             total_usd = float(usd_row["total"]) if usd_row else 0.0
             count_usd = int(usd_row["count"]) if usd_row else 0
@@ -393,7 +402,7 @@ class Database:
                 FROM transactions
                 WHERE currency = 'KHR' 
                   AND SUBSTR(transaction_time, 1, 10) BETWEEN ? AND ?
-            """, (start_date, today_str))
+            """, (start_date, end_date))
             khr_row = cursor.fetchone()
             total_khr = float(khr_row["total"]) if khr_row else 0.0
             count_khr = int(khr_row["count"]) if khr_row else 0
@@ -410,7 +419,8 @@ class Database:
                 WHERE SUBSTR(transaction_time, 1, 10) BETWEEN ? AND ?
                 GROUP BY SUBSTR(transaction_time, 9, 2), currency
                 ORDER BY day_num ASC
-            """, (start_date, today_str))
+            """, (start_date, end_date))
+
             breakdown_rows = cursor.fetchall()
             
             days_dict = {}
@@ -427,8 +437,7 @@ class Database:
 
             return {
                 "start_date": start_date,
-                "end_date": today_str,
-                "days": days,
+                "end_date": end_date,
                 "total_usd": total_usd,
                 "count_usd": count_usd,
                 "avg_usd": avg_usd,

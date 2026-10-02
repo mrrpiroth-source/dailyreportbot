@@ -104,6 +104,33 @@ def get_days_menu_buttons():
     ])
     return buttons
 
+def get_weeks_menu_buttons():
+    """Returns interactive inline buttons for selecting a specific week."""
+    import datetime
+    from reporter import get_cambodia_now
+    now = get_cambodia_now()
+    buttons = []
+    
+    # Generate last 4 weeks based on 7-day chunks backwards from today
+    for i in range(4):
+        end_d = now - datetime.timedelta(days=i*7)
+        start_d = end_d - datetime.timedelta(days=6)
+        
+        start_str = start_d.strftime("%Y-%m-%d")
+        end_str = end_d.strftime("%Y-%m-%d")
+        
+        display_start = f"{start_d.day}/{start_d.month}"
+        display_end = f"{end_d.day}/{end_d.month}"
+        label = f"សប្តាហ៍នេះ ({display_start} - {display_end})" if i == 0 else f"សប្តាហ៍ {display_start} - {display_end}"
+        
+        buttons.append([Button.inline(f"🗓 {label}", data=f"sel_wk_{start_str}_{end_str}".encode())])
+        
+    buttons.append([
+        Button.inline("🔙 ត្រឡប់ក្រោយ", data=b"btn_reports_menu"),
+        Button.inline("❌ បិទ", data=b"btn_exit")
+    ])
+    return buttons
+
 def get_months_menu_buttons():
     """Returns interactive inline buttons for selecting a month."""
     import datetime
@@ -1158,8 +1185,16 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             await safe_edit_or_respond(event, msg, buttons=get_daily_summary_buttons(summary, date_str=target_date))
 
         elif data == b"btn_week":
-            summary = db.get_summary_by_days(7)
-            msg = format_range_summary(summary, title_prefix="៧ថ្ងៃចុងក្រោយ")
+            await safe_edit_or_respond(event, "ជ្រើសរើសសប្តាហ៍ដែលអ្នកចង់មើល៖", buttons=get_weeks_menu_buttons())
+
+        elif data.startswith(b"sel_wk_"):
+            parts = data.decode().split("_")
+            start_date = parts[2]
+            end_date = parts[3]
+            summary = db.get_summary_by_date_range(start_date, end_date)
+            # Re-use format_range_summary or format_daily_summary string output format
+            from reporter import format_range_summary
+            msg = format_range_summary(summary, title_prefix=f"{start_date} ដល់ {end_date}")
             await safe_edit_or_respond(event, msg, buttons=get_general_summary_buttons(summary))
 
         elif data == b"btn_month":
