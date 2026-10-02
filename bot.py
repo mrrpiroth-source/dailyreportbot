@@ -391,8 +391,8 @@ def check_permission(sender_id: Optional[Any], chat_id: Optional[int] = None) ->
         return False
     if s_id <= 0:
         return False
-    # 1. Master Bot Owner (MASTER_BOT_OWNER_ID) has permanent Super Admin rights
-    if s_id == config.MASTER_BOT_OWNER_ID:
+    # 1. Master Bot Owner & Super Admins have permanent Super Admin rights
+    if s_id == config.MASTER_BOT_OWNER_ID or s_id in getattr(config, "SUPER_ADMIN_IDS", []):
         return True
     # 2. Configured ADMIN_USER_IDS always have access
     if config.ADMIN_USER_IDS and s_id in config.ADMIN_USER_IDS:
@@ -406,9 +406,9 @@ def check_permission(sender_id: Optional[Any], chat_id: Optional[int] = None) ->
 
 def is_admin(sender_id: Optional[Any], chat_id: Optional[int] = None) -> bool:
     """
-    Checks if a user has full Bot Owner privileges (Avata / ADMIN_USER_IDS).
+    Checks if a user has full Bot Owner privileges (Avata / Piroth / ADMIN_USER_IDS).
     Group Owners or Group Admins do NOT have admin rights over this bot.
-    Only the Bot Owner can approve/deny access requests or manage authorized staff.
+    Only Bot Owners/Super Admins can approve/deny access requests or manage authorized staff.
 
     Anonymous admin rule: same as check_permission — negative/null sender_id
     in the monitored group is treated as Bot Owner.
@@ -429,8 +429,8 @@ def is_admin(sender_id: Optional[Any], chat_id: Optional[int] = None) -> bool:
         return False
     if s_id <= 0:
         return False
-    # 1. Master Bot Owner (MASTER_BOT_OWNER_ID) has permanent Super Admin rights
-    if s_id == config.MASTER_BOT_OWNER_ID:
+    # 1. Master Bot Owner & Super Admins have permanent Super Admin rights
+    if s_id == config.MASTER_BOT_OWNER_ID or s_id in getattr(config, "SUPER_ADMIN_IDS", []):
         return True
     # 2. Configured admin user IDs from environment
     if config.ADMIN_USER_IDS and s_id in config.ADMIN_USER_IDS:
@@ -955,12 +955,12 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
 
         elif data == b"admin_do_clear":
             if not is_admin(sender_id, event.chat_id):
-                await event.answer("⛔ មុខងារនេះសម្រាប់តែម្ចាស់ Bot (Avata) ប៉ុណ្ណោះ!", alert=True)
+                await event.answer("⛔ មុខងារនេះសម្រាប់តែ Super Admin ប៉ុណ្ណោះ!", alert=True)
                 return
-            del_cnt = db.clear_authorized_users(keep_admin_ids=[config.MASTER_BOT_OWNER_ID])
+            del_cnt = db.clear_authorized_users(keep_admin_ids=getattr(config, "SUPER_ADMIN_IDS", [config.MASTER_BOT_OWNER_ID]))
             res_text = (
                 f"🧹 <b>បានសម្អាត (Clear) សិទ្ធិបុគ្គលិកចំនួន {del_cnt} នាក់ជោគជ័យ!</b>\n\n"
-                "👑 បច្ចុប្បន្នមានតែម្ចាស់ Bot (Avata) មួយគត់ដែលអាចចូលមើលរបាយការណ៍បាន។"
+                "👑 បច្ចុប្បន្នមានតែ Super Admin ប៉ុណ្ណោះដែលអាចចូលមើលរបាយការណ៍បាន។"
             )
             b = [
                 [Button.inline("🔙 ត្រឡប់ទៅ Admin Panel", data=b"admin_panel")]
@@ -1450,29 +1450,46 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
         # Determine admin privileges
         is_owner_user = is_admin(event.sender_id, chat_id)
 
-        # Persistent Keyboard clicks & Quick Admin Triggers for Bot Owner Avata
-        if is_owner_user:
-            if cmd in ("/manage", ".manage", "/group", ".group", "/members", ".members"):
-                parts = text_stripped.split(maxsplit=1)
-                group_query = parts[1].strip() if len(parts) > 1 and not parts[1].startswith("/") else ""
-                if not group_query:
-                    text_panel, btns = build_group_selector()
-                else:
-                    text_panel, btns = build_group_management_panel(group_query)
-                await event.reply(text_panel, parse_mode="html", buttons=btns)
+        # Persistent Keyboard clicks & Quick Admin Triggers
+        if cmd in ("/manage", ".manage", "/group", ".group", "/members", ".members"):
+            if not is_owner_user:
+                await safe_reply(
+                    event,
+                    "⛔ <b>គ្មានសិទ្ធិគ្រប់គ្រង (Permission Denied)</b>\n\n"
+                    f"👤 Telegram ID: <code>{event.sender_id}</code>\n"
+                    "មុខងារ <b>គ្រប់គ្រង Group</b> នេះសម្រាប់តែ <b>Admin / Super Admin</b> ប៉ុណ្ណោះ។",
+                    parse_mode="html"
+                )
                 return
+            parts = text_stripped.split(maxsplit=1)
+            group_query = parts[1].strip() if len(parts) > 1 and not parts[1].startswith("/") else ""
+            if not group_query:
+                text_panel, btns = build_group_selector()
+            else:
+                text_panel, btns = build_group_management_panel(group_query)
+            await event.reply(text_panel, parse_mode="html", buttons=btns)
+            return
 
-            if cmd in ("/admin", ".admin", "/panel", ".panel"):
-                text_panel, btns = build_admin_panel()
-                await event.reply(text_panel, parse_mode="html", buttons=btns)
+        if cmd in ("/admin", ".admin", "/panel", ".panel"):
+            if not is_owner_user:
+                await safe_reply(
+                    event,
+                    "⛔ <b>គ្មានសិទ្ធិគ្រប់គ្រង (Permission Denied)</b>\n\n"
+                    f"👤 Telegram ID: <code>{event.sender_id}</code>\n"
+                    "មុខងារ <b>Admin Panel</b> នេះសម្រាប់តែ <b>Admin / Super Admin</b> ប៉ុណ្ណោះ។",
+                    parse_mode="html"
+                )
                 return
+            text_panel, btns = build_admin_panel()
+            await event.reply(text_panel, parse_mode="html", buttons=btns)
+            return
 
         # 0. Start command in private chat: Welcome users with buttons
         if cmd in ("/start", ".start") and event.is_private:
             if is_owner_user:
                 panel_text, panel_btns = build_admin_panel()
                 welcome_msg = (
-                    "👋 <b>ជំរាបសួរលោកអ្នក (AVATA 🇸🇸) ជាម្ចាស់ Bot!</b>\n\n"
+                    "👋 <b>ជំរាបសួរលោកអ្នក ជាម្ចាស់ Bot / Super Admin!</b>\n\n"
                     "ប្រព័ន្ធបានរៀបចំប៊ូតុង និងផ្ទាំងគ្រប់គ្រងការងាររួចរាល់សម្រាប់លោកអ្នក។\n"
                     "👇 <i>សូមចុចប៊ូតុងខាងក្រោម ឬប្រើប្រាស់ផ្ទាំងគ្រប់គ្រង៖</i>"
                 )

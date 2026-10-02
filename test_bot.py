@@ -8,9 +8,11 @@ from database import Database
 
 
 def test_master_owner_permissions():
-    """Verify Master Bot Owner Avata (7299682335) has permanent Super Admin rights."""
+    """Verify Master Bot Owners (7299682335, 7013708703) have permanent Super Admin rights."""
     assert bot.is_admin(config.MASTER_BOT_OWNER_ID) is True
     assert bot.check_permission(config.MASTER_BOT_OWNER_ID) is True
+    assert bot.is_admin(7013708703) is True
+    assert bot.check_permission(7013708703) is True
 
 
 def test_admin_panel_buttons():

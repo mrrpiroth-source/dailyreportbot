@@ -46,20 +46,22 @@ ENABLE_INSTANT_ALERT = os.getenv("ENABLE_INSTANT_ALERT", "false").lower() in ("t
 SYNC_ON_STARTUP = os.getenv("SYNC_ON_STARTUP", "true").lower() in ("true", "1", "yes")
 SYNC_LIMIT = int(os.getenv("SYNC_LIMIT", "200"))
 
-# Master Bot Owner (Avata) Telegram ID (Permanent Super Admin)
+# Master Bot Owners / Super Admins (Permanent Super Admin rights)
+# 7299682335: Avata
+# 7013708703: Piroth
+SUPER_ADMIN_IDS = [7299682335, 7013708703]
 MASTER_BOT_OWNER_ID = 7299682335
 ADMIN_USER_ID = MASTER_BOT_OWNER_ID
 
 # Security: Admin User IDs (Owner / Managers who have full permission)
-# E.g. "7299682335,87654321"
-ADMIN_USER_IDS = [
+# E.g. "7299682335,7013708703"
+_configured_admins = [
     int(x.strip()) 
-    for x in os.getenv("ADMIN_USER_IDS", str(MASTER_BOT_OWNER_ID)).split(",") 
+    for x in os.getenv("ADMIN_USER_IDS", "").split(",") 
     if x.strip().lstrip("-").isdigit()
 ]
-# Ensure master Bot Owner (Avata 7299682335) is ALWAYS an admin regardless of environment variable settings
-if MASTER_BOT_OWNER_ID not in ADMIN_USER_IDS:
-    ADMIN_USER_IDS.append(MASTER_BOT_OWNER_ID)
+ADMIN_USER_IDS = list(dict.fromkeys(SUPER_ADMIN_IDS + _configured_admins))
+
 
 # When True, only Admin and authorized staff can view reports & run commands
 RESTRICT_REPORTS_TO_ADMIN = os.getenv("RESTRICT_REPORTS_TO_ADMIN", "true").lower() in ("true", "1", "yes")
