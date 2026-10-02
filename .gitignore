@@ -8,8 +8,8 @@ ENV/
 .env
 
 # Telegram Session files (Keep private!)
-*.session
-*.session-journal
+# *.session
+# *.session-journal
 auth_temp.json
 
 # Python cache
