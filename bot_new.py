@@ -1913,12 +1913,9 @@ async def start_bot():
             scope=BotCommandScopeDefault(),
             lang_code="",
             commands=[
-                BotCommand(command="today", description="📊 មើលរបាយការណ៍លក់ថ្ងៃនេះ"),
-                BotCommand(command="yesterday", description="📅 របាយការណ៍ម្សិលមិញ"),
-                BotCommand(command="week", description="🗓 របាយការណ៍ ៧ថ្ងៃចុងក្រោយ"),
-                BotCommand(command="month", description="📈 របាយការណ៍ប្រចាំខែ"),
-                BotCommand(command="year", description="📆 របាយការណ៍ប្រចាំឆ្នាំ"),
-                BotCommand(command="admin", description="👑 ផ្ទាំងបញ្ជាម្ចាស់ Bot"),
+                BotCommand(command="menu", description="របាយការណ៍"),
+                BotCommand(command="register", description="ចុះឈ្មោះ"),
+                BotCommand(command="contact_us", description="ទាក់ទងAdmin"),
             ]
         ))
     except Exception as e:

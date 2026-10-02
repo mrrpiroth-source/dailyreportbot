@@ -1593,12 +1593,33 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             )
             return
 
-        # /menu command to display month selector
-        if cmd in ("/menu", ".menu"):
-            if not check_permission(event.sender_id, chat_id):
-                await event.reply("⛔ អ្នកគ្មានសិទ្ធិមើលរបាយការណ៍ទេ!", parse_mode="html")
-                return
-            await event.reply("ជ្រើសរើសខែ:", buttons=get_months_menu_buttons())
+        # Registration command
+        if cmd in ("/register", ".register"):
+            name = "User"
+            try:
+                sender = await event.get_sender()
+                if sender:
+                    name = getattr(sender, 'first_name', 'User') or 'User'
+            except Exception:
+                pass
+            reg_text = (
+                "📝 <b>ការចុះឈ្មោះប្រើប្រាស់ (Registration)</b>\n\n"
+                f"👤 <b>ឈ្មោះ:</b> {name}\n"
+                f"🔢 <b>Telegram User ID:</b> <code>{event.sender_id}</code>\n\n"
+                "💡 <i>ដើម្បីចុះឈ្មោះ ឬស្នើសុំបើកសិទ្ធិមើលរបាយការណ៍ សូមផ្ញើ User ID នេះទៅកាន់ម្ចាស់ Bot (Admin)។</i>"
+            )
+            await safe_reply(event, reg_text, parse_mode="html", buttons=get_menu_buttons())
+            return
+
+        # Contact Admin command
+        if cmd in ("/contact_us", ".contact_us", "/contact", ".contact"):
+            contact_text = (
+                "☎️ <b>ទំនាក់ទំនង Admin (Contact Us)</b>\n\n"
+                "👑 <b>Bot Owner:</b> <code>AVATA 🇸🇸</code>\n"
+                "💬 <b>Telegram:</b> @admin\n\n"
+                "💡 <i>ប្រសិនបើលោកអ្នកមានចម្ងល់ ឬត្រូវការជំនួយបច្ចេកទេស សូមទាក់ទងមកកាន់ Admin។</i>"
+            )
+            await safe_reply(event, contact_text, parse_mode="html", buttons=get_menu_buttons())
             return
 
         # 4c. RBAC Group Member Management: /manage or /group or /members (Bot Owner Avata only)
@@ -1621,6 +1642,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
 
         # 5. Permission Gate: Protect all financial report commands
         report_cmd_prefixes = (
+            "/menu", ".menu",
             "/today", ".today", "បូកសរុបថ្ងៃនេះ",
             "/yesterday", ".yesterday", "ម្សិលមិញ",
             "/week", ".week", "/weekly", ".weekly", "សប្តាហ៍នេះ",
@@ -1684,7 +1706,16 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
                 return
 
         # 6. Execute Allowed Report Commands
-        if cmd in ("/today", ".today", "បូកសរុបថ្ងៃនេះ"):
+        if cmd in ("/menu", ".menu", "/report", ".report", "/reports", ".reports"):
+            await safe_reply(
+                event,
+                "📊 <b>របាយការណ៍ (Reports)</b>\n\nសូមជ្រើសរើសប្រភេទរបាយការណ៍ខាងក្រោម៖",
+                parse_mode="html",
+                buttons=get_reports_menu_buttons()
+            )
+            return
+
+        elif cmd in ("/today", ".today", "បូកសរុបថ្ងៃនេះ"):
             today_str = get_cambodia_today_str()
             summary = db.get_summary_by_date(today_str)
             comparison = db.get_daily_comparison(today_str)
@@ -1943,12 +1974,9 @@ async def start_bot():
             scope=BotCommandScopeDefault(),
             lang_code="",
             commands=[
-                BotCommand(command="today", description="📊 មើលរបាយការណ៍លក់ថ្ងៃនេះ"),
-                BotCommand(command="yesterday", description="📅 របាយការណ៍ម្សិលមិញ"),
-                BotCommand(command="week", description="🗓 របាយការណ៍ ៧ថ្ងៃចុងក្រោយ"),
-                BotCommand(command="month", description="📈 របាយការណ៍ប្រចាំខែ"),
-                BotCommand(command="year", description="📆 របាយការណ៍ប្រចាំឆ្នាំ"),
-                BotCommand(command="admin", description="👑 ផ្ទាំងបញ្ជាម្ចាស់ Bot"),
+                BotCommand(command="menu", description="របាយការណ៍"),
+                BotCommand(command="register", description="ចុះឈ្មោះ"),
+                BotCommand(command="contact_us", description="ទាក់ទងAdmin"),
             ]
         ))
     except Exception as e:
