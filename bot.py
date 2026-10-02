@@ -1844,7 +1844,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             else:
                 logger.warning(f"Ignored transaction: {message}")
 
-        @user_client.on(events.NewMessage(incoming=True, outgoing=True))
+    @user_client.on(events.NewMessage(incoming=True, outgoing=True))
     @bot_client.on(events.NewMessage(incoming=True, outgoing=True))
     async def message_listener(event: events.NewMessage.Event):
         try:
@@ -1978,7 +1978,4 @@ async def start_health_check_server():
         logger.warning(f"Could not start health check server: {e}")
         return None
 
-_ b o t _ c l i e n t  
- =  
- N o n e  
- 
+_bot_client = None
