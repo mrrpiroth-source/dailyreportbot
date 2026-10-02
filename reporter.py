@@ -164,8 +164,31 @@ def format_monthly_summary(summary: Dict[str, Any]) -> str:
     total_count = summary.get("total_count", 0)
     breakdowns = summary.get("daily_breakdown", [])
     
-    title = f"សរុបប្រតិបត្តិការ {khmer_month}"
-    return build_table_report(title, breakdowns, summary, is_month=True)
+    lines = [
+        f"📊 <b>សរុបប្រតិបត្តិការប្រចាំខែ {khmer_month}</b>\n",
+        "<pre>",
+        "ថ្ងៃទី       ៛          $    ចំនួនលក់សរុប",
+        "---------------------------------------"
+    ]
+    
+    if not breakdowns:
+        lines.append("    (មិនមានទិន្នន័យប្រតិបត្តិការទេ)")
+    else:
+        for row in breakdowns:
+            d = str(row.get("day", "00")).zfill(2)
+            k = format(int(round(row.get("total_khr", 0.0))), ",")
+            u = format(float(row.get("total_usd", 0.0)), ",.2f")
+            c = str(int(row.get("count", 0)))
+            lines.append(f"{d:<5} {k:>10} {u:>10} {c:>10}")
+            
+    lines.append("---------------------------------------")
+    tot_k = format(int(round(total_khr)), ",")
+    tot_u = format(float(total_usd), ",.2f")
+    tot_c = str(int(total_count))
+    lines.append(f"Tot:  {tot_k:>10} {tot_u:>10} {tot_c:>10}")
+    lines.append("</pre>")
+    
+    return "\n".join(lines)
 
 def format_range_summary(summary: Dict[str, Any], title_prefix: str = "") -> str:
     start_date = summary.get("start_date", "")

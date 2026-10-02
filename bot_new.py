@@ -84,25 +84,61 @@ def get_reports_menu_buttons():
         ]
     ]
 
-def get_days_menu_buttons():
-    """Returns interactive inline buttons for selecting a specific day."""
-    import datetime
-    from reporter import get_cambodia_now
+def get_calendar_buttons(year: Optional[int] = None, month: Optional[int] = None):
+    """Returns interactive calendar inline buttons for full month day selection."""
+    import calendar
+    from reporter import MONTHS_KH
+    from database import get_cambodia_now
     now = get_cambodia_now()
-    buttons = []
-    
-    # Generate last 6 days
-    for i in range(1, 7):
-        d = now - datetime.timedelta(days=i)
-        date_str = d.strftime("%Y-%m-%d")
-        display_str = f"{d.day}/{d.month}/{d.year}"
-        buttons.append([Button.inline(f"📅 ថ្ងៃទី {display_str}", data=f"sel_day_{date_str}".encode())])
-        
-    buttons.append([
+    if year is None:
+        year = now.year
+    if month is None:
+        month = now.month
+
+    # Navigation for previous / next month
+    prev_month = month - 1 if month > 1 else 12
+    prev_year = year if month > 1 else year - 1
+    next_month = month + 1 if month < 12 else 1
+    next_year = year if month < 12 else year + 1
+
+    m_str = f"{month:02d}"
+    m_name = MONTHS_KH.get(m_str, m_str)
+
+    rows = []
+    # Header: Month navigation & Title
+    rows.append([
+        Button.inline("◀️", data=f"cal_{prev_year}_{prev_month}".encode()),
+        Button.inline(f"📅 ខែ{m_name} {year}", data=b"ignore"),
+        Button.inline("▶️", data=f"cal_{next_year}_{next_month}".encode())
+    ])
+
+    # Day of week header: Monday to Sunday (Khmer abbreviations)
+    days_header = ["ច", "អ", "ព", "ព្រ", "សុ", "ស", "អា"]
+    rows.append([Button.inline(dh, data=b"ignore") for dh in days_header])
+
+    cal = calendar.monthcalendar(year, month)
+    today = now.date()
+
+    for week in cal:
+        week_row = []
+        for d in week:
+            if d == 0:
+                week_row.append(Button.inline(" ", data=b"ignore"))
+            else:
+                date_str = f"{year:04d}-{month:02d}-{d:02d}"
+                # Highlight today's date with dots
+                label = f"•{d}•" if (year == today.year and month == today.month and d == today.day) else str(d)
+                week_row.append(Button.inline(label, data=f"sel_day_{date_str}".encode()))
+        rows.append(week_row)
+
+    rows.append([
         Button.inline("🔙 ត្រឡប់ក្រោយ", data=b"btn_reports_menu"),
         Button.inline("❌ បិទ", data=b"btn_exit")
     ])
-    return buttons
+    return rows
+
+def get_days_menu_buttons(year: Optional[int] = None, month: Optional[int] = None):
+    return get_calendar_buttons(year, month)
 
 def get_weeks_menu_buttons():
     """Returns interactive inline buttons for selecting a specific week."""
@@ -131,21 +167,29 @@ def get_weeks_menu_buttons():
     ])
     return buttons
 
-def get_months_menu_buttons():
-    """Returns interactive inline buttons for selecting a month."""
-    import datetime
-    year = datetime.datetime.now().year
-    months_en = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+def get_months_menu_buttons(year: Optional[int] = None):
+    """Returns interactive inline buttons for selecting a month (12 months)."""
+    if not year:
+        year = get_cambodia_now().year
+    
+    months_kh = [
+        ("01", "មករា"), ("02", "កុម្ភៈ"), ("03", "មីនា"),
+        ("04", "មេសា"), ("05", "ឧសភា"), ("06", "មិថុនា"),
+        ("07", "កក្កដា"), ("08", "សីហា"), ("09", "កញ្ញា"),
+        ("10", "តុលា"), ("11", "វិច្ឆិកា"), ("12", "ធ្នូ")
+    ]
+    
     buttons = []
-    for i in range(0, 12, 2):
+    for i in range(0, 12, 3):
         row = []
-        for j in range(2):
-            if i + j < 12:
-                month_name = months_en[i + j]
-                month_num = f"{i + j + 1:02d}"
-                row.append(Button.inline(f"{month_name} {year}", data=f"sel_month_{year}-{month_num}".encode()))
+        for m_num, m_name in months_kh[i:i+3]:
+            row.append(Button.inline(f"{m_name} ({m_num})", data=f"sel_month_{year}-{m_num}".encode()))
         buttons.append(row)
-    buttons.append([Button.inline("ត្រឡប់ក្រោយ", data=b"btn_reports_menu")])
+        
+    buttons.append([
+        Button.inline("🔙 ត្រឡប់ក្រោយ", data=b"btn_reports_menu"),
+        Button.inline("❌ បិទ", data=b"btn_exit")
+    ])
     return buttons
 
 def get_daily_summary_buttons(summary: Dict[str, Any], date_str: str = "today"):
@@ -160,6 +204,15 @@ def get_daily_summary_buttons(summary: Dict[str, Any], date_str: str = "today"):
     max_time = format_12h_time(summary.get("max_time", ""))
     time_range = f"{min_time} ដល់ {max_time}" if min_time and max_time else "គ្មានប្រតិបត្តិការ"
     
+    cal_target = b"btn_other_days"
+    if date_str and "-" in date_str:
+        try:
+            parts = date_str.split("-")
+            y_val, m_val = int(parts[0]), int(parts[1])
+            cal_target = f"cal_{y_val}_{m_val}".encode()
+        except Exception:
+            cal_target = b"btn_other_days"
+
     return [
         [Button.inline(f"💵 ទឹកប្រាក់ដូល្លា: ${usd:,.2f}", data=b"ignore")],
         [Button.inline(f"៛ រៀល: {int(khr):,} ៛", data=b"ignore")],
@@ -167,9 +220,10 @@ def get_daily_summary_buttons(summary: Dict[str, Any], date_str: str = "today"):
         [Button.inline(f"⏰ ម៉ោងប្រតិបត្តិការ: {time_range}", data=b"ignore")],
         [Button.inline("⚖️ ការប្រៀបធៀបការលក់ម្សិលមិញជាមួយថ្ងៃនេះ", data=f"btn_compare_{date_str}".encode())],
         [
-            Button.inline("🔙 ត្រឡប់ក្រោយ", data=b"btn_reports_menu"),
-            Button.inline("❌ បិទ", data=b"btn_exit")
-        ]
+            Button.inline("📅 ជ្រើសរើសថ្ងៃផ្សេង (Calendar)", data=cal_target),
+            Button.inline("🔙 ម៉ឺនុយ", data=b"btn_reports_menu")
+        ],
+        [Button.inline("❌ បិទ", data=b"btn_exit")]
     ]
 
 def get_general_summary_buttons(summary: Dict[str, Any]):
@@ -1097,37 +1151,21 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             return
 
         # Check permission for report inline buttons
-        if not check_permission(sender_id, event.chat_id):
-            if sender_id is not None and sender_id > 0:
-                sender_ent = await event.get_sender()
-                first = getattr(sender_ent, "first_name", "") or ""
-                last = getattr(sender_ent, "last_name", "") or ""
-                fname = f"{first} {last}".strip() or f"User {sender_id}"
-
-                # Determine requester's role in the group
-                g_role = await get_user_group_role(client, event.chat_id, sender_id)
-
-                await notify_owner_of_access_request(
-                    client=client,
-                    user_id=sender_id,
-                    chat_id=event.chat_id,
-                    user_entity=sender_ent,
-                    source="button",
-                    group_role=g_role
+        is_report_btn = (
+            data in (b"btn_reports_menu", b"btn_today", b"btn_yesterday", b"btn_week", b"btn_month", b"btn_year", b"btn_other_days", b"btn_history") or
+            data.startswith((b"sel_day_", b"sel_month_", b"sel_wk_", b"cal_"))
+        )
+        if is_report_btn:
+            if not is_admin(sender_id, event.chat_id):
+                contact_text = (
+                    "☎️ <b>ទំនាក់ទំនង Admin</b>\n\n"
+                    "Telegram: @admin\n"
+                    "👑 <b>Bot Owner:</b> <code>AVATA 🇸🇸</code>\n\n"
+                    "💡 <i>សូមទំនាក់ទំនង Admin ដើម្បីស្នើសុំសិទ្ធិមើលរបាយការណ៍។</i>"
                 )
-                await event.answer(
-                    f"⛔ គ្មានសិទ្ធិមើលរបាយការណ៍!\n"
-                    f"👤 ឈ្មោះ: {fname} ({g_role}) [ID: {sender_id}]\n"
-                    f"📩 បានបញ្ជូនឈ្មោះ និង ID ទៅម្ចាស់ Bot (Avata) ដើម្បីសុំ Approve រួចហើយ!",
-                    alert=True
-                )
-            else:
-                await event.answer(
-                    "⛔ ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ!\n\n"
-                    "⚠️ លោកអ្នកកំពុងបើក Send anonymously។ សូមបិទមុខងារនេះជាមុនសិន!",
-                    alert=True
-                )
-            return
+                await event.answer("☎️ សូមទំនាក់ទំនង Admin (Telegram: @admin)!", alert=True)
+                await safe_edit_or_respond(event, contact_text, buttons=get_menu_buttons())
+                return
             
         if data == b"ignore":
             await event.answer()
@@ -1174,8 +1212,29 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             )
             await event.answer(msg, alert=True)
 
-        elif data == b"btn_yesterday" or data == b"btn_other_days":
-            await safe_edit_or_respond(event, "ជ្រើសរើសថ្ងៃដែលអ្នកចង់មើល៖", buttons=get_days_menu_buttons())
+        elif data == b"btn_yesterday":
+            yesterday_str = (get_cambodia_now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+            summary = db.get_summary_by_date(yesterday_str)
+            msg = format_daily_summary(summary, title_prefix=f"ម្សិលមិញ ({yesterday_str})")
+            await safe_edit_or_respond(event, msg, buttons=get_daily_summary_buttons(summary, "yesterday"))
+
+        elif data == b"btn_other_days":
+            now = get_cambodia_now()
+            await safe_edit_or_respond(
+                event,
+                "📅 <b>សូមជ្រើសរើសថ្ងៃក្នុងប្រតិទិន (Calendar)៖</b>",
+                buttons=get_calendar_buttons(now.year, now.month)
+            )
+
+        elif data.startswith(b"cal_"):
+            parts = data.decode().split("_")
+            cal_year = int(parts[1])
+            cal_month = int(parts[2])
+            await safe_edit_or_respond(
+                event,
+                "📅 <b>សូមជ្រើសរើសថ្ងៃក្នុងប្រតិទិន (Calendar)៖</b>",
+                buttons=get_calendar_buttons(cal_year, cal_month)
+            )
 
         elif data.startswith(b"sel_day_"):
             target_date = data.decode().split("_")[2]
@@ -1198,17 +1257,23 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             await safe_edit_or_respond(event, msg, buttons=get_back_and_close_buttons())
 
         elif data == b"btn_month":
-            # Just show the current month as before, or we could redirect to menu
-            current_month = get_cambodia_now().strftime("%Y-%m")
-            summary = db.get_summary_by_month(current_month)
-            msg = format_monthly_summary(summary)
-            await safe_edit_or_respond(event, msg, buttons=get_back_and_close_buttons())
+            await safe_edit_or_respond(
+                event,
+                "📅 <b>សូមជ្រើសរើសខែដែលចង់មើលរបាយការណ៍៖</b>",
+                buttons=get_months_menu_buttons()
+            )
 
         elif data.startswith(b"sel_month_"):
             target_month = data.decode().split("_")[2]
             summary = db.get_summary_by_month(target_month)
             msg = format_monthly_summary(summary)
-            await safe_edit_or_respond(event, msg, buttons=get_back_and_close_buttons())
+            month_back_btns = [
+                [
+                    Button.inline("🔙 ជ្រើសរើសខែផ្សេង", data=b"btn_month"),
+                    Button.inline("❌ បិទ", data=b"btn_exit")
+                ]
+            ]
+            await safe_edit_or_respond(event, msg, buttons=month_back_btns)
 
         elif data == b"btn_main_menu":
             await safe_edit_or_respond(event, "ជ្រើសរើសខែ:", buttons=get_months_menu_buttons())
@@ -1599,6 +1664,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
 
         # 5. Permission Gate: Protect all financial report commands
         report_cmd_prefixes = (
+            "/menu", ".menu",
             "/today", ".today", "បូកសរុបថ្ងៃនេះ",
             "/yesterday", ".yesterday", "ម្សិលមិញ",
             "/week", ".week", "/weekly", ".weekly", "សប្តាហ៍នេះ",
@@ -1609,56 +1675,14 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             "/sync", ".sync", "/backfill"
         )
         if any(cmd.startswith(p) for p in report_cmd_prefixes):
-            if not check_permission(event.sender_id, chat_id) and event.sender_id != bot_id:
-                if event.sender_id is not None and event.sender_id > 0:
-                    sender = None
-                    try:
-                        sender = await event.get_sender()
-                    except Exception:
-                        pass
-                    first = getattr(sender, "first_name", "") if sender else ""
-                    last = getattr(sender, "last_name", "") if sender else ""
-                    fname = f"{first} {last}".strip() or f"User {event.sender_id}"
-                    uname_val = getattr(sender, "username", None) if sender else None
-                    uname_str = f" (@{uname_val})" if uname_val else ""
-
-                    # Determine requester's role in the group (owner, admin, or member)
-                    g_role = await get_user_group_role(client, chat_id, event.sender_id)
-
-                    await notify_owner_of_access_request(
-                        client=bot_client,
-                        user_id=event.sender_id,
-                        chat_id=chat_id,
-                        user_entity=sender,
-                        source="command",
-                        group_role=g_role
-                    )
-
-                    # SPAM GUARD: Debounce "Access Denied" reply (60s cooldown per user per chat)
-                    ad_key = f"{event.sender_id}_{chat_id}"
-                    now_ad = time.time()
-                    if ad_key not in last_access_denied_time or (now_ad - last_access_denied_time[ad_key]) >= 60:
-                        last_access_denied_time[ad_key] = now_ad
-                        await event.reply(
-                            "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Access Denied)</b>\n\n"
-                            "🔒 <b>របាយការណ៍ហិរញ្ញវត្ថុ និងប្រាក់ចំណូល ត្រូវបានការពារដោយសុវត្ថិភាពខ្ពស់។</b>\n"
-                            "<i>(ទោះបីជា Owner ឬ Admin របស់ Group ក៏ត្រូវតែទទួលបានការអនុញ្ញាតពីម្ចាស់ Bot ជាមុនសិនដែរ)</i>\n\n"
-                            f"👤 <b>ឈ្មោះ:</b> {fname} ({g_role}){uname_str}\n"
-                            f"🔢 <b>Telegram User ID:</b> <code>{event.sender_id}</code>\n\n"
-                            "📩 <b>ប្រព័ន្ធបានបញ្ជូនឈ្មោះ និង ID ទៅម្ចាស់ Bot (Avata) ដើម្បីសុំ Approve រួចហើយ!</b>\n"
-                            "💡 <i>សូមរង់ចាំម្ចាស់ Bot ចុចយល់ព្រម (Approve) មួយភ្លែត។</i>",
-                            parse_mode="html"
-                        )
-                    else:
-                        logger.info(f"Access Denied reply throttled for user {event.sender_id} in chat {chat_id}")
-                else:
-                    # sender_id is None and NOT from the monitored group
-                    await safe_reply(
-                        event,
-                        "⛔ <b>ការចូលប្រើប្រាស់ត្រូវបានបដិសេធ (Send anonymously)</b>\n\n"
-                        "💡 <i>សូមបិទ Send anonymously ដើម្បីប្រព័ន្ធអាចបញ្ជូន ID ទៅ Bot Owner សុំ Approve បាន។</i>",
-                        parse_mode="html"
-                    )
+            if not is_admin(event.sender_id, chat_id) and event.sender_id != bot_id:
+                contact_text = (
+                    "☎️ <b>ទំនាក់ទំនង Admin</b>\n\n"
+                    "Telegram: @admin\n"
+                    "👑 <b>Bot Owner:</b> <code>AVATA 🇸🇸</code>\n\n"
+                    "💡 <i>សូមទំនាក់ទំនង Admin ដើម្បីស្នើសុំសិទ្ធិមើលរបាយការណ៍។</i>"
+                )
+                await safe_reply(event, contact_text, parse_mode="html", buttons=get_menu_buttons())
                 return
 
         # 6. Execute Allowed Report Commands
@@ -1832,7 +1856,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             else:
                 logger.warning(f"Ignored transaction: {message}")
 
-        @user_client.on(events.NewMessage(incoming=True, outgoing=True))
+    @user_client.on(events.NewMessage(incoming=True, outgoing=True))
     @bot_client.on(events.NewMessage(incoming=True, outgoing=True))
     async def message_listener(event: events.NewMessage.Event):
         try:
