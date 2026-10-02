@@ -92,33 +92,27 @@ def format_daily_summary(
     return msg
 
 def build_table_report(title: str, breakdowns: List[Dict[str, Any]], total_khr: float, total_usd: float, total_count: int, is_month: bool = False) -> str:
-    msg = f"{title}\n\n<pre>\n"
-    msg += f"{'ថ្ងៃ':<4} {'(៛)':<10} {'($)':<8} {'សរុបចំនួន'}\n"
-    msg += "-" * 33 + "\n"
+    msg = f"{title}\n\n"
     
     for row in breakdowns:
         day_str = row.get("day", "00")
-        if not is_month:
-            # If not month, the day might be just 'day', but if it's a range, maybe we just use day
-            try:
-                day_str = str(int(day_str))
-            except:
-                pass
-        else:
-            try:
-                day_str = str(int(day_str))
-            except:
-                pass
+        try:
+            day_str = str(int(day_str))
+        except:
+            pass
         
         k_val = int(row.get("total_khr", 0.0))
         u_val = float(row.get("total_usd", 0.0))
         cnt = int(row.get("count", 0))
         
-        # Format columns: Day (4), KHR (10), USD (8), Count
-        msg += f"{day_str:<4} {k_val:<10} {u_val:<8.2f} {cnt}\n"
+        # Format as list: 📅 ថ្ងៃទី X: ៛1000 | $1.00 | 5 លក់
+        if is_month:
+            msg += f"📅 ថ្ងៃទី {day_str}: ៛{k_val:,} | ${u_val:,.2f} | {cnt} លក់\n"
+        else:
+            msg += f"📅 ថ្ងៃ {day_str}: ៛{k_val:,} | ${u_val:,.2f} | {cnt} លក់\n"
         
-    msg += "-" * 33 + "\n"
-    msg += f"Tot.: ៛{int(total_khr):<8} ${total_usd:<8.2f} {total_count}\n</pre>\n"
+    msg += "\n"
+    msg += f"<b>Tot.: ៛{int(total_khr):,} | ${total_usd:,.2f} | {total_count} លក់</b>\n"
     return msg
 
 def format_yearly_summary(summary: Dict[str, Any]) -> str:
