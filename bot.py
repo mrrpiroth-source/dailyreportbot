@@ -1897,7 +1897,7 @@ async def start_bot():
         import sys
         sys.exit(1)
 
-    await bot_client.start(bot_token=config.BOT_TOKEN)
+    await cast(Awaitable[Any], bot_client.start(bot_token=config.BOT_TOKEN))
 
     me_user = await user_client.get_me()
     me_bot = await bot_client.get_me()
