@@ -89,6 +89,19 @@ async def sync_previous_messages(client: TelegramClient, chat_id, limit: int = 2
     khr_total = 0.0
 
     try:
+        # Populate Telethon's entity cache completely
+        await active_client.get_dialogs()
+        
+        # Verify entity exists
+        entity = await active_client.get_entity(chat_id)
+        print(f"✅ បានស្គាល់ Group: {getattr(entity, 'title', chat_id)}")
+    except ValueError:
+        print(f"❌ គណនីនេះមិនទាន់ស្គាល់ Group ID {chat_id} ទេ។ សូមប្រាកដថាគណនីនេះបាន Join ចូល Group នេះហើយ!")
+        return None
+    except Exception as e:
+        logger.debug(f"Warning: Failed to fetch dialogs or entity: {e}")
+
+    try:
         async for msg in active_client.iter_messages(chat_id, limit=limit):
             if not msg.text:
                 continue

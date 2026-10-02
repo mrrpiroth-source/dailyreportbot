@@ -81,10 +81,8 @@ def format_daily_summary(
     time_range = f"{min_time} -> {max_time}" if min_time and max_time else "គ្មានប្រតិបត្តិការ"
 
     msg = (
-        f"<b>AutoSum</b>\n"
         f"សរុបប្រតិបត្តិការថ្ងៃទី <b>{khmer_date}</b>\n"
-        f"ម៉ោងបូកសរុប <b>{now_time_12h}</b>\n"
-        f"(ដោយ: <b>AutoSum</b>)\n\n"
+        f"ម៉ោងបូកសរុប <b>{now_time_12h}</b>\n\n"
         f"<pre>\n"
         f"(៛): {int(total_khr):<8} | ប្រតិបត្តិការ: {count_khr}\n"
         f"($): {total_usd:<8.2f} | ប្រតិបត្តិការ: {count_usd}\n"
@@ -94,7 +92,7 @@ def format_daily_summary(
     return msg
 
 def build_table_report(title: str, breakdowns: List[Dict[str, Any]], total_khr: float, total_usd: float, total_count: int, is_month: bool = False) -> str:
-    msg = f"<b>AutoSum</b>\n{title}\n\n<pre>\n"
+    msg = f"{title}\n\n<pre>\n"
     msg += f"{'ថ្ងៃ':<4} {'(៛)':<10} {'($)':<8} {'សរុបចំនួន'}\n"
     msg += "-" * 33 + "\n"
     
@@ -132,7 +130,7 @@ def format_yearly_summary(summary: Dict[str, Any]) -> str:
     breakdown = summary.get("monthly_breakdown", [])
     
     title = f"សរុបប្រតិបត្តិការ ឆ្នាំ {target_year}"
-    msg = f"<b>AutoSum</b>\n{title}\n\n<pre>\n"
+    msg = f"{title}\n\n<pre>\n"
     msg += f"{'ខែ':<4} {'(៛)':<10} {'($)':<8} {'សរុបចំនួន'}\n"
     msg += "-" * 33 + "\n"
     
@@ -190,8 +188,8 @@ def format_range_summary(summary: Dict[str, Any], title_prefix: str = "") -> str
 
 def format_recent_transactions(transactions: List[Dict[str, Any]], limit: int = 5) -> str:
     if not transactions:
-        return "<b>AutoSum</b>\nមិនទាន់មានប្រតិបត្តិការ។"
-    msg = "<b>AutoSum</b>\nប្រតិបត្តិការចុងក្រោយ:\n\n<pre>\n"
+        return "មិនទាន់មានប្រតិបត្តិការ។"
+    msg = "ប្រតិបត្តិការចុងក្រោយ:\n\n<pre>\n"
     for txn in transactions:
         amt_str = format_currency(txn["amount"], txn["currency"])
         time_str = txn.get("transaction_time", "")[-8:-3] # HH:MM

@@ -56,20 +56,28 @@ db = Database(config.DB_PATH)
 
 
 def get_menu_buttons():
+    """Returns interactive inline buttons for main menu."""
+    return [
+        [Button.inline("📊 របាយការណ៍", data=b"btn_reports_menu")],
+        [
+            Button.inline("📝 ចុះឈ្មោះ", data=b"btn_register"),
+            Button.inline("☎️ ទំនាក់ទំនង Admin", data=b"btn_contact")
+        ],
+        [Button.inline("❌ បិទ", data=b"btn_exit")]
+    ]
+
+def get_reports_menu_buttons():
     """Returns interactive inline buttons for quick report access."""
     return [
         [
-            Button.inline("📊 ថ្ងៃនេះ (Today)", data=b"btn_today"),
-            Button.inline("📅 ម្សិលមិញ (Yesterday)", data=b"btn_yesterday"),
+            Button.inline("📊 ប្រចាំថ្ងៃ", data=b"btn_today"),
+            Button.inline("🗓 ប្រចាំសប្តាហ៍", data=b"btn_week")
         ],
         [
-            Button.inline("🗓 ៧ថ្ងៃចុងក្រោយ (Week)", data=b"btn_week"),
-            Button.inline("📈 ប្រចាំខែ (Month)", data=b"btn_month"),
+            Button.inline("📈 ប្រចាំខែ", data=b"btn_month"),
+            Button.inline("📆 ប្រចាំឆ្នាំ", data=b"btn_year")
         ],
-        [
-            Button.inline("📆 ប្រចាំឆ្នាំ", data=b"btn_year"),
-            Button.inline("❌ Exit", data=b"btn_exit"),
-        ]
+        [Button.inline("🔙 ត្រឡប់ក្រោយ", data=b"btn_back_main")]
     ]
 
 def get_months_menu_buttons():
@@ -86,8 +94,32 @@ def get_months_menu_buttons():
                 month_num = f"{i + j + 1:02d}"
                 row.append(Button.inline(f"{month_name} {year}", data=f"sel_month_{year}-{month_num}".encode()))
         buttons.append(row)
-    buttons.append([Button.inline("ត្រឡប់ក្រោយ", data=b"btn_today")])
+    buttons.append([Button.inline("ត្រឡប់ក្រោយ", data=b"btn_reports_menu")])
     return buttons
+
+def get_daily_summary_buttons(summary: Dict[str, Any], date_str: str = "today"):
+    from reporter import format_12h_time
+    usd = summary.get("total_usd", 0.0)
+    khr = summary.get("total_khr", 0.0)
+    count = summary.get("total_count", 0)
+    if count == 0:
+        count = summary.get("count_usd", 0) + summary.get("count_khr", 0)
+    
+    min_time = format_12h_time(summary.get("min_time", ""))
+    max_time = format_12h_time(summary.get("max_time", ""))
+    time_range = f"{min_time} ដល់ {max_time}" if min_time and max_time else "គ្មានប្រតិបត្តិការ"
+    
+    return [
+        [Button.inline(f"💵 ទឹកប្រាក់ដូល្លា: ${usd:,.2f}", data=b"ignore")],
+        [Button.inline(f"៛ រៀល: {int(khr):,} ៛", data=b"ignore")],
+        [Button.inline(f"📊 ចំនួនសរុប: {count} ប្រតិបត្តិការ", data=b"ignore")],
+        [Button.inline(f"⏰ ម៉ោងប្រតិបត្តិការ: {time_range}", data=b"ignore")],
+        [Button.inline("⚖️ ការប្រៀបធៀបការលក់ម្សិលមិញជាមួយថ្ងៃនេះ", data=f"btn_compare_{date_str}".encode())],
+        [
+            Button.inline("🔙 ត្រឡប់ក្រោយ", data=b"btn_reports_menu"),
+            Button.inline("❌ បិទ", data=b"btn_exit")
+        ]
+    ]
 
 
 async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[Any] = None):
@@ -1019,31 +1051,69 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
                     alert=True
                 )
             return
+            
+        if data == b"ignore":
+            await event.answer()
+            return
 
-        if data == b"btn_today":
+        if data == b"btn_reports_menu":
+            await safe_edit_or_respond(event, "📊 <b>របាយការណ៍ (Reports)</b>\nសូមជ្រើសរើសប្រភេទរបាយការណ៍ខាងក្រោម៖", buttons=get_reports_menu_buttons())
+            
+        elif data == b"btn_register":
+            await safe_edit_or_respond(event, "📝 <b>ការចុះឈ្មោះ (Registration)</b>\nសូមទំនាក់ទំនង Admin ដើម្បីរៀបចំការចុះឈ្មោះ។", buttons=get_menu_buttons())
+            
+        elif data == b"btn_contact":
+            await safe_edit_or_respond(event, "☎️ <b>ទំនាក់ទំនង Admin</b>\nTelegram: @admin", buttons=get_menu_buttons())
+            
+        elif data == b"btn_back_main":
+            await safe_edit_or_respond(event, "🏠 <b>ម៉ឺនុយចម្បង (Main Menu)</b>", buttons=get_menu_buttons())
+
+        elif data == b"btn_today":
+            from reporter import format_khmer_date
             today_str = get_cambodia_today_str()
             summary = db.get_summary_by_date(today_str)
+            khmer_date = format_khmer_date(today_str)
+            now_time = datetime.datetime.now().strftime("%I:%M %p")
+            msg = f"<b>KronLive</b>\nរបាយការណ៍លក់ប្រចាំថ្ងៃ <b>{khmer_date}</b>\nម៉ោងបូកសរុប <b>{now_time}</b>"
+            await safe_edit_or_respond(event, msg, buttons=get_daily_summary_buttons(summary, "today"))
+            
+        elif data == b"btn_compare_today":
+            today_str = get_cambodia_today_str()
             comparison = db.get_daily_comparison(today_str)
-            msg = format_daily_summary(summary, comparison=comparison, title_prefix="ថ្ងៃនេះ (Today)")
-            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
+            
+            diff_usd = comparison.get("diff_usd", 0.0)
+            diff_khr = comparison.get("diff_khr", 0.0)
+            diff_count = comparison.get("diff_count", 0)
+            
+            usd_sign = "+" if diff_usd > 0 else ""
+            khr_sign = "+" if diff_khr > 0 else ""
+            cnt_sign = "+" if diff_count > 0 else ""
+            
+            msg = (
+                f"⚖️ ប្រៀបធៀបម្សិលមិញនិងថ្ងៃនេះ:\n\n"
+                f"💵 ដូល្លា: {usd_sign}${diff_usd:,.2f}\n"
+                f"៛ រៀល: {khr_sign}{int(diff_khr):,} ៛\n"
+                f"📊 ប្រតិបត្តិការ: {cnt_sign}{diff_count}\n"
+            )
+            await event.answer(msg, alert=True)
 
         elif data == b"btn_yesterday":
             yesterday = (get_cambodia_now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
             summary = db.get_summary_by_date(yesterday)
             msg = format_daily_summary(summary, title_prefix="ម្សិលមិញ (Yesterday)")
-            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
+            await safe_edit_or_respond(event, msg, buttons=get_reports_menu_buttons())
 
         elif data == b"btn_week":
             summary = db.get_summary_by_days(7)
             msg = format_range_summary(summary, title_prefix="៧ថ្ងៃចុងក្រោយ")
-            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
+            await safe_edit_or_respond(event, msg, buttons=get_reports_menu_buttons())
 
         elif data == b"btn_month":
             # Just show the current month as before, or we could redirect to menu
             current_month = get_cambodia_now().strftime("%Y-%m")
             summary = db.get_summary_by_month(current_month)
             msg = format_monthly_summary(summary)
-            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
+            await safe_edit_or_respond(event, msg, buttons=get_reports_menu_buttons())
 
         elif data.startswith(b"sel_month_"):
             target_month = data.decode().split("_")[2]
@@ -1058,12 +1128,12 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             current_year = get_cambodia_now().strftime("%Y")
             summary = db.get_summary_by_year(current_year)
             msg = format_yearly_summary(summary)
-            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
+            await safe_edit_or_respond(event, msg, buttons=get_reports_menu_buttons())
 
         elif data == b"btn_history":
             txns = db.get_recent_transactions(limit=5)
             msg = format_recent_transactions(txns, limit=5)
-            await safe_edit_or_respond(event, msg, buttons=get_menu_buttons())
+            await safe_edit_or_respond(event, msg, buttons=get_reports_menu_buttons())
 
         elif data == b"btn_exit":
             try:
@@ -1635,8 +1705,16 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             return
 
         # 3. Check if the incoming message is a KHQR Payment Notification
+        # អោយអានតែពី bot ABA PayWay ឬសារពាក់ព័ន្ធនឹង ABA PayWay ប៉ុណ្ណោះ
+        sender = await event.get_sender()
+        is_aba_bot = sender and getattr(sender, 'bot', False) and 'aba' in getattr(sender, 'username', '').lower()
+        
         parsed_data = KHQRParser.parse_message(text)
         if parsed_data:
+            # បើមិនមែនមកពី Bot ABA Payway ទេ ហើយក៏មិនមានពាក្យ aba ក្នុងអត្ថបទដែរ នោះមិនគិតទេ
+            if not is_aba_bot and "aba pay" not in text.lower() and "trx. id:" not in text.lower():
+                return
+                
             # Determine transaction time
             msg_date = event.date.astimezone(CAMBODIA_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -1729,6 +1807,11 @@ async def start_bot():
         user_name = me.first_name + (f" {me.last_name}" if me.last_name else "")
         print(f"✅ បានភ្ជាប់ជោគជ័យជា User Account: {user_name} (@{me.username or 'No username'})")
         print("💡 គណនីនេះនឹងអានសារពី Bank Bot នៅក្នុង Group បាន ១០០% ដោយគ្មានបញ្ហា Telegram Block Bot-to-Bot!")
+        
+    # Ensure the host account (e.g. +27 72 603 6187) is always a Super Admin
+    if me.id not in config.ADMIN_USER_IDS:
+        config.ADMIN_USER_IDS.append(me.id)
+        config.MASTER_BOT_OWNER_ID = me.id # Set as Master Owner
 
     # Setup handlers and scheduler (pass bot_id for anti-loop guard)
     setup_handlers(client, bot_id=me.id)
