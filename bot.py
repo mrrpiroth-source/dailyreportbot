@@ -1231,16 +1231,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             except Exception:
                 await event.edit("🔒 <i>របាយការណ៍ត្រូវបានបិទ (Report Closed)</i>\n👉 <i>ចុច <code>/today</code> ដើម្បីបើកឡើងវិញ</i>", parse_mode="html", buttons=None)
 
-    @bot_client.on(events.CallbackQuery)
-    async def callback_handler(event: events.CallbackQuery.Event):
-        try:
-            await _process_callback(event)
-        except Exception as e:
-            logger.error(f"Error handling callback query: {e}", exc_info=True)
-            try:
-                await event.answer("⚠️ មានបញ្ហាបច្ចេកទេសបន្តិចបន្តួច សូមសាកល្បងម្តងទៀត!", alert=True)
-            except Exception:
-                pass
+    bot_client.add_event_handler(_process_callback, events.CallbackQuery)
 
     # 2. Listener for new messages (monitoring KHQR payments & text commands)
     async def _process_message(event: events.NewMessage.Event):
@@ -1402,7 +1393,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
                 await event.reply(text_panel, parse_mode="html", buttons=btns)
                 return
 
-        # 0. Start command in private chat: Welcome Bot Owner with full dashboard and buttons
+        # 0. Start command in private chat: Welcome users with buttons
         if cmd in ("/start", ".start") and event.is_private:
             if is_owner_user:
                 panel_text, panel_btns = build_admin_panel()
@@ -1413,6 +1404,16 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
                 )
                 await event.reply(welcome_msg, parse_mode="html", buttons=get_owner_reply_keyboard())
                 await event.reply(panel_text, parse_mode="html", buttons=panel_btns)
+                return
+            else:
+                welcome_msg = (
+                    "👋 <b>ជំរាបសួរ! សូមស្វាគមន៍មកកាន់ KHQR Daily Report Bot</b>\n\n"
+                    "ប្រព័ន្ធកត់ត្រា និងបូកសរុបរបាយការណ៍ទូទាត់ប្រាក់ KHQR ស្វ័យប្រវត្តិ។\n\n"
+                    f"👤 ឈ្មោះរបស់អ្នក: <b>{getattr(sender_obj, 'first_name', 'User') if 'sender_obj' in locals() and sender_obj else 'User'}</b>\n"
+                    f"🔢 Telegram ID: <code>{event.sender_id}</code>\n\n"
+                    "👇 <i>សូមចុចប៊ូតុងខាងក្រោមដើម្បីពិនិត្យរបាយការណ៍៖</i>"
+                )
+                await event.reply(welcome_msg, parse_mode="html", buttons=get_menu_buttons())
                 return
 
         # 1. Identity command: Check Telegram ID (Publicly accessible)
@@ -1844,13 +1845,8 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             else:
                 logger.warning(f"Ignored transaction: {message}")
 
-    @user_client.on(events.NewMessage(incoming=True, outgoing=True))
-    @bot_client.on(events.NewMessage(incoming=True, outgoing=True))
-    async def message_listener(event: events.NewMessage.Event):
-        try:
-            await _process_message(event)
-        except Exception as e:
-            logger.error(f"Error handling incoming message: {e}", exc_info=True)
+    user_client.add_event_handler(_process_message, events.NewMessage(incoming=True, outgoing=True))
+    bot_client.add_event_handler(_process_message, events.NewMessage(incoming=True, outgoing=True))
 
 
 
@@ -1889,29 +1885,34 @@ async def start_bot():
     user_client = TelegramClient(StringSession(config.USER_SESSION_STRING), config.API_ID, config.API_HASH)
     bot_client = TelegramClient('bot_session_file', config.API_ID, config.API_HASH)
 
-    print("🚀 កំពុងដំណើរការ Hybrid Bot (Userbot + Bot Account)...")
+    print("🚀 កំពុងដំណើរការ Hybrid Bot (Bot Account + Userbot)...")
 
-    await user_client.connect()
-    if not await user_client.is_user_authorized():
-        print("❌ Invalid USER_SESSION_STRING")
-        import sys
-        sys.exit(1)
-
+    # 1. ALWAYS Start Official Bot Account FIRST so commands & buttons work immediately!
     await cast(Awaitable[Any], bot_client.start(bot_token=config.BOT_TOKEN))
-
-    me_user = await user_client.get_me()
     me_bot = await bot_client.get_me()
-    
-    print(f"✅ Userbot Connected: @{me_user.username}")
-    print(f"✅ Official Bot Connected: @{me_bot.username}")
-    
-    if me_user.id not in config.ADMIN_USER_IDS:
-        config.ADMIN_USER_IDS.append(me_user.id)
-        config.MASTER_BOT_OWNER_ID = me_user.id
+    print(f"✅ Official Bot Connected: @{me_bot.username} (ID: {me_bot.id})")
 
     # Store global bot_client for easy access in handlers
     global _bot_client
     _bot_client = bot_client
+
+    # 2. Attempt to start Userbot for reading ABA Bank messages in groups
+    userbot_active = False
+    if config.USER_SESSION_STRING:
+        try:
+            print("🔄 កំពុងភ្ជាប់ Userbot...")
+            await user_client.connect()
+            if await user_client.is_user_authorized():
+                me_user = await user_client.get_me()
+                userbot_active = True
+                print(f"✅ Userbot Connected: @{me_user.username}")
+                if me_user.id not in config.ADMIN_USER_IDS:
+                    config.ADMIN_USER_IDS.append(me_user.id)
+            else:
+                print("⚠️ Userbot មិនទាន់ Login ឬ Session ផុតកំណត់ (Commands នៅតែដើរធម្មតា).")
+        except Exception as e:
+            print(f"⚠️ Userbot Connection Error: {e} (Official Bot នៅតែដើរធម្មតា).")
+            userbot_active = False
 
     setup_handlers(user_client, bot_client, bot_id=me_bot.id)
     scheduler = setup_scheduler(bot_client)
@@ -1940,10 +1941,10 @@ async def start_bot():
         asyncio.create_task(sync_previous_messages(user_client, config.MONITOR_CHAT_ID, limit=config.SYNC_LIMIT))
 
     import asyncio
-    await asyncio.gather(
-        user_client.run_until_disconnected(),
-        bot_client.run_until_disconnected()
-    )
+    run_tasks = [bot_client.run_until_disconnected()]
+    if userbot_active:
+        run_tasks.append(user_client.run_until_disconnected())
+    await asyncio.gather(*run_tasks)
 
 async def start_health_check_server():
     """Lightweight HTTP server for cloud platforms (Render, Koyeb) to keep service healthy and awake."""
