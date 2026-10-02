@@ -92,7 +92,9 @@ def format_daily_summary(
     return msg
 
 def build_table_report(title: str, breakdowns: List[Dict[str, Any]], summary: Dict[str, Any], is_month: bool = False) -> str:
-    msg = f"{title}\n\n"
+    msg = f"{title}\n\n<pre>\n"
+    msg += f"{'ថ្ងៃ':<4} {'(៛)':<10} {'($)':<8} {'សរុបចំនួន'}\n"
+    msg += "-" * 33 + "\n"
     
     for row in breakdowns:
         day_str = row.get("day", "00")
@@ -105,15 +107,15 @@ def build_table_report(title: str, breakdowns: List[Dict[str, Any]], summary: Di
         u_val = float(row.get("total_usd", 0.0))
         cnt = int(row.get("count", 0))
         
-        # Format as list: 📅 ថ្ងៃទី X: ៛1000 | $1.00 | 5 លក់
-        msg += f"📅 ថ្ងៃទី {day_str}: ៛{k_val:,} | ${u_val:,.2f} | {cnt} លក់\n"
+        # Format columns: Day (4), KHR (10), USD (8), Count
+        msg += f"{day_str:<4} {k_val:<10} {u_val:<8.2f} {cnt}\n"
         
     total_khr = summary.get("total_khr", 0.0)
-    count_khr = summary.get("count_khr", 0)
     total_usd = summary.get("total_usd", 0.0)
+    count_khr = summary.get("count_khr", 0)
     count_usd = summary.get("count_usd", 0)
     
-    msg += "\n<pre>\n"
+    msg += "-" * 33 + "\n"
     msg += f"(៛): {int(total_khr):<8} | ប្រតិបត្តិការ: {count_khr}\n"
     msg += f"($): {total_usd:<8.2f} | ប្រតិបត្តិការ: {count_usd}\n"
     msg += "</pre>\n"
@@ -128,10 +130,9 @@ def format_yearly_summary(summary: Dict[str, Any]) -> str:
     breakdown = summary.get("monthly_breakdown", [])
     
     title = f"សរុបប្រតិបត្តិការ ឆ្នាំ {target_year}"
-    msg = f"{title}\n\n"
-    
-    count_khr = summary.get("count_khr", 0)
-    count_usd = summary.get("count_usd", 0)
+    msg = f"{title}\n\n<pre>\n"
+    msg += f"{'ខែ':<4} {'(៛)':<10} {'($)':<8} {'សរុបចំនួន'}\n"
+    msg += "-" * 33 + "\n"
     
     for row in breakdown:
         m_str = row.get("month", "00")
@@ -142,9 +143,14 @@ def format_yearly_summary(summary: Dict[str, Any]) -> str:
         k_val = int(row.get("total_khr", 0.0))
         u_val = float(row.get("total_usd", 0.0))
         cnt = int(row.get("count", 0))
-        msg += f"📅 ខែទី {m_str}: ៛{k_val:,} | ${u_val:,.2f} | {cnt} លក់\n"
+        msg += f"{m_str:<4} {k_val:<10} {u_val:<8.2f} {cnt}\n"
         
-    msg += "\n<pre>\n"
+    total_khr = summary.get("total_khr", 0.0)
+    total_usd = summary.get("total_usd", 0.0)
+    count_khr = summary.get("count_khr", 0)
+    count_usd = summary.get("count_usd", 0)
+        
+    msg += "-" * 33 + "\n"
     msg += f"(៛): {int(total_khr):<8} | ប្រតិបត្តិការ: {count_khr}\n"
     msg += f"($): {total_usd:<8.2f} | ប្រតិបត្តិការ: {count_usd}\n"
     msg += "</pre>\n"
