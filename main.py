@@ -5,6 +5,30 @@ Main entry point for running the KHQR Daily Report Telegram Bot.
 import sys
 import time
 import asyncio
+import os
+from threading import Thread
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(b"KHQR Bot is alive and running!")
+
+    def log_message(self, format, *args):
+        # Disable logging for health checks to keep console clean
+        pass
+
+def run_dummy_server():
+    port = int(os.environ.get('PORT', 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    server.serve_forever()
+
+def keep_alive():
+    t = Thread(target=run_dummy_server)
+    t.daemon = True
+    t.start()
 
 # Safely ensure UTF-8 output on Windows terminals
 if sys.platform == "win32":
@@ -16,6 +40,10 @@ if sys.platform == "win32":
 from bot import start_bot
 
 if __name__ == "__main__":
+    # Start the dummy web server to satisfy Render's web service requirement
+    keep_alive()
+    print("🌐 Web Server ត្រូវបានចាប់ផ្តើម (Port bindings for Render active).")
+    
     retry_delay = 3
     while True:
         try:
