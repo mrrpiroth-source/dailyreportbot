@@ -737,7 +737,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             notify_chat = req_info.get("chat_id") or config.MONITOR_CHAT_ID
             if notify_chat:
                 try:
-                    await client.send_message(
+                    await bot_client.send_message(
                         notify_chat,
                         f"🎉 <b>ការស្នើសុំសិទ្ធិត្រូវបានអនុម័ត! (Approved)</b>\n\n"
                         f"👤 <b>{target_name} ({group_role})</b> ត្រូវបានម្ចាស់ Bot (Avata) អនុញ្ញាតឱ្យមើលរបាយការណ៍ហិរញ្ញវត្ថុក្នុង Group នេះបានហើយ។\n\n"
@@ -1080,7 +1080,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             await event.edit(f"⏳ <b>កំពុងដំណើរការ Sync ទាញយកសារចាស់ៗចំនួន {limit_val} សារ... សូមរង់ចាំបន្តិច</b>", parse_mode="html")
             from sync_history import sync_previous_messages
             target_chat = config.MONITOR_CHAT_ID or event.chat_id
-            res = await sync_previous_messages(client, target_chat, limit=limit_val)
+            res = await sync_previous_messages(user_client, target_chat, limit=limit_val)
             if res and not res.get("bot_restricted"):
                 rep_t = (
                     "✅ <b>ការ Sync ទិន្នន័យចាស់ៗជោគជ័យ:</b>\n\n"
@@ -1105,10 +1105,10 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
                 fname = f"{first} {last}".strip() or f"User {sender_id}"
 
                 # Determine requester's role in the group
-                g_role = await get_user_group_role(client, event.chat_id, sender_id)
+                g_role = await get_user_group_role(bot_client, event.chat_id, sender_id)
 
                 await notify_owner_of_access_request(
-                    client=client,
+                    client=bot_client,
                     user_id=sender_id,
                     chat_id=event.chat_id,
                     user_entity=sender_ent,
@@ -1497,7 +1497,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
                 return
 
             try:
-                target_user = await client.get_entity(target_id)
+                target_user = await bot_client.get_entity(target_id)
                 uname = getattr(target_user, 'username', None)
                 fname = getattr(target_user, 'first_name', '') or ''
                 if getattr(target_user, 'last_name', None):
@@ -1635,7 +1635,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
                     uname_str = f" (@{uname_val})" if uname_val else ""
 
                     # Determine requester's role in the group (owner, admin, or member)
-                    g_role = await get_user_group_role(client, chat_id, event.sender_id)
+                    g_role = await get_user_group_role(bot_client, chat_id, event.sender_id)
 
                     await notify_owner_of_access_request(
                         client=bot_client,
@@ -1751,7 +1751,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             await safe_reply(event, f"🔄 កំពុងទាញយក និងពិនិត្យសារចាស់ៗចំនួន <b>{limit}</b> សារពី Group...")
             
             from sync_history import sync_previous_messages
-            res = await sync_previous_messages(client, target_chat, limit=limit)
+            res = await sync_previous_messages(user_client, target_chat, limit=limit)
             if res and res.get("bot_restricted"):
                 await safe_reply(
                     event,
