@@ -1877,7 +1877,6 @@ def setup_scheduler(client: TelegramClient) -> AsyncIOScheduler:
 
 async def start_bot():
     """Main startup routine for the Telegram client."""
-    await start_health_check_server()
 
     if not config.API_ID or not config.API_HASH:
         print("Missing API_ID / API_HASH")

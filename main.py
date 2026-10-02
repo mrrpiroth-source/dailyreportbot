@@ -16,14 +16,23 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"KHQR Bot is alive and running!")
 
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain; charset=utf-8')
+        self.end_headers()
+
     def log_message(self, format, *args):
         # Disable logging for health checks to keep console clean
         pass
 
 def run_dummy_server():
     port = int(os.environ.get('PORT', 10000))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    server.serve_forever()
+    try:
+        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+        print(f"🌐 HTTP Health Check Server listening on port {port} (0.0.0.0:{port})")
+        server.serve_forever()
+    except Exception as e:
+        print(f"⚠️ Health check server error: {e}")
 
 def keep_alive():
     t = Thread(target=run_dummy_server)
