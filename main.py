@@ -39,12 +39,17 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# Safely ensure UTF-8 output on Windows terminals
-if sys.platform == "win32":
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
-    if hasattr(sys.stderr, 'reconfigure'):
-        sys.stderr.reconfigure(encoding='utf-8')
+# Safely ensure unbuffered / line-buffered UTF-8 output on all platforms (Windows & Render Linux)
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
+    except Exception:
+        pass
+if hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)
+    except Exception:
+        pass
 
 from bot import start_bot
 

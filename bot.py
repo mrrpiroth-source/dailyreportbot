@@ -1237,17 +1237,28 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
     async def _process_message(event: events.NewMessage.Event):
         # HYBRID ROUTING
         is_bot = (event.client == bot_client)
-        is_cmd = event.raw_text and event.raw_text.startswith(("/", "."))
+        text_raw = event.raw_text or ""
+        text_lower = text_raw.lower()
         
-        # 1. Userbot ONLY handles KHQR parsing (no commands)
-        if not is_bot and is_cmd:
+        is_cmd = (
+            text_raw.startswith(("/", ".")) or 
+            event.is_private or 
+            "របាយការណ៍" in text_lower or 
+            "admin panel" in text_lower or 
+            "គ្រប់គ្រង" in text_lower or 
+            "ស្ថានភាព" in text_lower or
+            "version" in text_lower
+        )
+        
+        # 1. Userbot ONLY handles KHQR parsing in groups (no commands)
+        if not is_bot and is_cmd and not event.is_private:
             return
             
         # 2. Bot Account ONLY handles commands & buttons (no KHQR parsing, as it can't read bots anyway)
         if is_bot and not is_cmd:
             return
             
-        print(f"DEBUG: [{ 'BOT' if is_bot else 'USER' }] ទទួលសារ! Text: {event.raw_text!r} | Out: {getattr(event, 'out', False)} | Sender: {event.sender_id} | Chat: {event.chat_id}")
+        logger.info(f"[{ 'BOT' if is_bot else 'USER' }] Received msg: {event.raw_text!r} | Out: {getattr(event, 'out', False)} | Sender: {event.sender_id} | Chat: {event.chat_id}")
         
         # ══════════════════════════════════════════════════════════════
         # ANTI-LOOP GUARDS — Must be the absolute FIRST checks!
@@ -1879,18 +1890,19 @@ async def start_bot():
         return
         
     if not config.BOT_TOKEN:
-        print("❌ កំហុស (ERROR): សូមបញ្ចូល TELEGRAM_BOT_TOKEN នៅក្នុង Render Environment Variables!")
+        logger.error("❌ កំហុស (ERROR): សូមបញ្ចូល TELEGRAM_BOT_TOKEN នៅក្នុង Render Environment Variables!")
         return
 
+    # Use in-memory StringSession for official bot to prevent sqlite locking issues on container platforms
+    bot_client = TelegramClient(StringSession(), config.API_ID, config.API_HASH)
     user_client = TelegramClient(StringSession(config.USER_SESSION_STRING), config.API_ID, config.API_HASH)
-    bot_client = TelegramClient('bot_session_file', config.API_ID, config.API_HASH)
 
-    print("🚀 កំពុងដំណើរការ Hybrid Bot (Bot Account + Userbot)...")
+    logger.info("🚀 កំពុងដំណើរការ Hybrid Bot (Bot Account + Userbot)...")
 
     # 1. ALWAYS Start Official Bot Account FIRST so commands & buttons work immediately!
     await cast(Awaitable[Any], bot_client.start(bot_token=config.BOT_TOKEN))
     me_bot = await bot_client.get_me()
-    print(f"✅ Official Bot Connected: @{me_bot.username} (ID: {me_bot.id})")
+    logger.info(f"✅ Official Bot Connected: @{me_bot.username} (ID: {me_bot.id})")
 
     # Store global bot_client for easy access in handlers
     global _bot_client
@@ -1900,18 +1912,26 @@ async def start_bot():
     userbot_active = False
     if config.USER_SESSION_STRING:
         try:
-            print("🔄 កំពុងភ្ជាប់ Userbot...")
+            logger.info("🔄 កំពុងភ្ជាប់ Userbot...")
             await user_client.connect()
             if await user_client.is_user_authorized():
                 me_user = await user_client.get_me()
                 userbot_active = True
-                print(f"✅ Userbot Connected: @{me_user.username}")
+                logger.info(f"✅ Userbot Connected: @{me_user.username}")
                 if me_user.id not in config.ADMIN_USER_IDS:
                     config.ADMIN_USER_IDS.append(me_user.id)
             else:
-                print("⚠️ Userbot មិនទាន់ Login ឬ Session ផុតកំណត់ (Commands នៅតែដើរធម្មតា).")
+                logger.warning("⚠️ Userbot មិនទាន់ Login ឬ Session ផុតកំណត់ (Commands នៅតែដើរធម្មតា).")
+                try:
+                    await user_client.disconnect()
+                except Exception:
+                    pass
         except Exception as e:
-            print(f"⚠️ Userbot Connection Error: {e} (Official Bot នៅតែដើរធម្មតា).")
+            logger.warning(f"⚠️ Userbot Connection Error: {e} (Official Bot នៅតែដើរធម្មតា).")
+            try:
+                await user_client.disconnect()
+            except Exception:
+                pass
             userbot_active = False
 
     setup_handlers(user_client, bot_client, bot_id=me_bot.id)
@@ -1936,15 +1956,22 @@ async def start_bot():
     except Exception as e:
         logger.debug(f"Could not register Bot Commands: {e}")
 
-    if config.SYNC_ON_STARTUP and config.MONITOR_CHAT_ID:
+    # Only sync past messages if Userbot is actually authorized and active
+    if userbot_active and config.SYNC_ON_STARTUP and config.MONITOR_CHAT_ID:
         from sync_history import sync_previous_messages
         asyncio.create_task(sync_previous_messages(user_client, config.MONITOR_CHAT_ID, limit=config.SYNC_LIMIT))
 
-    import asyncio
-    run_tasks = [bot_client.run_until_disconnected()]
+    # Run Userbot in an isolated background supervisor so its errors never kill the main bot
     if userbot_active:
-        run_tasks.append(user_client.run_until_disconnected())
-    await asyncio.gather(*run_tasks)
+        async def run_userbot_worker():
+            try:
+                await user_client.run_until_disconnected()
+            except Exception as e:
+                logger.warning(f"Userbot runner stopped: {e}")
+        asyncio.create_task(run_userbot_worker())
+
+    # Keep Official Bot running 24/7 as the primary core process
+    await bot_client.run_until_disconnected()
 
 async def start_health_check_server():
     """Lightweight HTTP server for cloud platforms (Render, Koyeb) to keep service healthy and awake."""
