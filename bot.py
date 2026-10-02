@@ -121,6 +121,23 @@ def get_daily_summary_buttons(summary: Dict[str, Any], date_str: str = "today"):
         ]
     ]
 
+def get_general_summary_buttons(summary: Dict[str, Any]):
+    usd = summary.get("total_usd", 0.0)
+    khr = summary.get("total_khr", 0.0)
+    count = summary.get("total_count", 0)
+    if count == 0:
+        count = summary.get("count_usd", 0) + summary.get("count_khr", 0)
+    
+    return [
+        [Button.inline(f"💵 ទឹកប្រាក់ដូល្លា: ${usd:,.2f}", data=b"ignore")],
+        [Button.inline(f"៛ រៀល: {int(khr):,} ៛", data=b"ignore")],
+        [Button.inline(f"📊 ចំនួនសរុប: {count} ប្រតិបត្តិការ", data=b"ignore")],
+        [
+            Button.inline("🔙 ត្រឡប់ក្រោយ", data=b"btn_reports_menu"),
+            Button.inline("❌ បិទ", data=b"btn_exit")
+        ]
+    ]
+
 
 async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[Any] = None):
     """Generates and sends the daily summary report to the target chat with sales comparison."""
@@ -1106,20 +1123,20 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
         elif data == b"btn_week":
             summary = db.get_summary_by_days(7)
             msg = format_range_summary(summary, title_prefix="៧ថ្ងៃចុងក្រោយ")
-            await safe_edit_or_respond(event, msg, buttons=get_reports_menu_buttons())
+            await safe_edit_or_respond(event, msg, buttons=get_general_summary_buttons(summary))
 
         elif data == b"btn_month":
             # Just show the current month as before, or we could redirect to menu
             current_month = get_cambodia_now().strftime("%Y-%m")
             summary = db.get_summary_by_month(current_month)
             msg = format_monthly_summary(summary)
-            await safe_edit_or_respond(event, msg, buttons=get_reports_menu_buttons())
+            await safe_edit_or_respond(event, msg, buttons=get_general_summary_buttons(summary))
 
         elif data.startswith(b"sel_month_"):
             target_month = data.decode().split("_")[2]
             summary = db.get_summary_by_month(target_month)
             msg = format_monthly_summary(summary)
-            await safe_edit_or_respond(event, msg, buttons=get_months_menu_buttons())
+            await safe_edit_or_respond(event, msg, buttons=get_general_summary_buttons(summary))
 
         elif data == b"btn_main_menu":
             await safe_edit_or_respond(event, "ជ្រើសរើសខែ:", buttons=get_months_menu_buttons())
@@ -1128,7 +1145,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             current_year = get_cambodia_now().strftime("%Y")
             summary = db.get_summary_by_year(current_year)
             msg = format_yearly_summary(summary)
-            await safe_edit_or_respond(event, msg, buttons=get_reports_menu_buttons())
+            await safe_edit_or_respond(event, msg, buttons=get_general_summary_buttons(summary))
 
         elif data == b"btn_history":
             txns = db.get_recent_transactions(limit=5)
