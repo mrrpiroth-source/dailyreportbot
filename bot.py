@@ -87,7 +87,6 @@ def get_reports_menu_buttons():
 def get_days_menu_buttons():
     """Returns interactive inline buttons for selecting a specific day."""
     import datetime
-    from reporter import get_cambodia_now
     now = get_cambodia_now()
     buttons = []
     
@@ -107,7 +106,6 @@ def get_days_menu_buttons():
 def get_weeks_menu_buttons():
     """Returns interactive inline buttons for selecting a specific week."""
     import datetime
-    from reporter import get_cambodia_now
     now = get_cambodia_now()
     buttons = []
     
