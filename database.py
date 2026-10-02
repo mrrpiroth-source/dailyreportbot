@@ -631,11 +631,12 @@ class Database:
             conn.close()
 
     def is_user_authorized(self, user_id: int, chat_id: Optional[int] = None) -> bool:
-        """Checks if a user is permitted to use the bot in a group."""
+        """Checks if a user is permitted to use the bot in a group or private chat."""
         conn = self.get_connection()
         try:
             cursor = self.get_cursor(conn)
-            if chat_id is not None and chat_id != 0:
+            # Group chats in Telegram always have negative IDs
+            if chat_id is not None and chat_id < 0:
                 self.execute_sql(cursor, "SELECT 1 FROM authorized_users WHERE user_id = ? AND (chat_id = ? OR chat_id = 0)", (user_id, chat_id))
             else:
                 self.execute_sql(cursor, "SELECT 1 FROM authorized_users WHERE user_id = ?", (user_id,))
@@ -648,7 +649,7 @@ class Database:
         conn = self.get_connection()
         try:
             cursor = self.get_cursor(conn)
-            if chat_id is not None and chat_id != 0:
+            if chat_id is not None and chat_id < 0:
                 self.execute_sql(cursor, "SELECT role FROM authorized_users WHERE user_id = ? AND (chat_id = ? OR chat_id = 0) ORDER BY id ASC LIMIT 1", (user_id, chat_id))
             else:
                 self.execute_sql(cursor, "SELECT role FROM authorized_users WHERE user_id = ? ORDER BY id ASC LIMIT 1", (user_id,))

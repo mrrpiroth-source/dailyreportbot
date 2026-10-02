@@ -1178,7 +1178,8 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             data.startswith((b"sel_day_", b"sel_month_", b"sel_wk_", b"cal_"))
         )
         if is_report_btn:
-            if not is_admin(sender_id, event.chat_id):
+            has_access = check_permission(sender_id, event.chat_id) or is_admin(sender_id, event.chat_id) or (sender_id == bot_id)
+            if not has_access:
                 contact_text = (
                     "☎️ <b>ទំនាក់ទំនង Admin</b>\n\n"
                     "Telegram: @avatalamiyamal\n"
@@ -1816,7 +1817,8 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             "/sync", ".sync", "/backfill"
         )
         if any(cmd.startswith(p) for p in report_cmd_prefixes):
-            if not is_admin(event.sender_id, chat_id) and event.sender_id != bot_id:
+            has_access = check_permission(event.sender_id, chat_id) or is_admin(event.sender_id, chat_id) or (event.sender_id == bot_id)
+            if not has_access:
                 contact_text = (
                     "☎️ <b>ទំនាក់ទំនង Admin</b>\n\n"
                     "Telegram: @avatalamiyamal\n"

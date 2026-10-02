@@ -84,10 +84,28 @@ def test_safe_reply_parameters():
     assert "parse_mode" in sig_edit.parameters, "safe_edit_or_respond must have parse_mode"
 
 
+def test_approved_staff_permission():
+    """Verify approved staff has report access via check_permission."""
+    db = Database()
+    db.add_authorized_user(
+        user_id=5359573118,
+        username="sunsreypov",
+        full_name="ស៊ន់ ស្រីពៅ",
+        role="staff",
+        chat_id=-1004325343684,
+        chat_title="Meeting cafe ☕",
+        group_role="staff"
+    )
+    assert bot.check_permission(5359573118, -1004325343684) is True
+    assert bot.check_permission(5359573118, None) is True
+    assert bot.check_permission(9999999999, -1004325343684) is False
+
+
 if __name__ == "__main__":
     test_master_owner_permissions()
     test_admin_panel_buttons()
     test_khmer_text_and_button_aliases()
     test_safe_reply_parameters()
+    test_approved_staff_permission()
     print(f"✅ All unit tests passed successfully for Version v{config.BOT_VERSION}!")
 
