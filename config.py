@@ -62,6 +62,9 @@ _configured_admins = [
 ]
 ADMIN_USER_IDS = list(dict.fromkeys(SUPER_ADMIN_IDS + _configured_admins))
 
+# Admin Contact Username
+ADMIN_CONTACT_USERNAME = os.getenv("ADMIN_CONTACT_USERNAME", "@avatalamiyamal")
+
 
 # When True, only Admin and authorized staff can view reports & run commands
 RESTRICT_REPORTS_TO_ADMIN = os.getenv("RESTRICT_REPORTS_TO_ADMIN", "true").lower() in ("true", "1", "yes")

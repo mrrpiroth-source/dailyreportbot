@@ -1157,11 +1157,11 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             if not is_admin(sender_id, event.chat_id):
                 contact_text = (
                     "☎️ <b>ទំនាក់ទំនង Admin</b>\n\n"
-                    "Telegram: @admin\n"
+                    "Telegram: @avatalamiyamal\n"
                     "👑 <b>Bot Owner:</b> <code>AVATA 🇸🇸</code>\n\n"
                     "💡 <i>សូមទំនាក់ទំនង Admin ដើម្បីស្នើសុំសិទ្ធិមើលរបាយការណ៍។</i>"
                 )
-                await event.answer("☎️ សូមទំនាក់ទំនង Admin (Telegram: @admin)!", alert=True)
+                await event.answer("☎️ សូមទំនាក់ទំនង Admin (Telegram: @avatalamiyamal)!", alert=True)
                 await safe_edit_or_respond(event, contact_text, buttons=get_menu_buttons())
                 return
             
@@ -1176,7 +1176,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             await safe_edit_or_respond(event, "📝 <b>ការចុះឈ្មោះ (Registration)</b>\nសូមទំនាក់ទំនង Admin ដើម្បីរៀបចំការចុះឈ្មោះ។", buttons=get_menu_buttons())
             
         elif data == b"btn_contact":
-            await safe_edit_or_respond(event, "☎️ <b>ទំនាក់ទំនង Admin</b>\nTelegram: @admin", buttons=get_menu_buttons())
+            await safe_edit_or_respond(event, "☎️ <b>ទំនាក់ទំនង Admin</b>\nTelegram: @avatalamiyamal", buttons=get_menu_buttons())
             
         elif data == b"btn_back_main":
             await safe_edit_or_respond(event, "🏠 <b>ម៉ឺនុយចម្បង (Main Menu)</b>", buttons=get_menu_buttons())
@@ -1698,7 +1698,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             contact_text = (
                 "☎️ <b>ទំនាក់ទំនង Admin (Contact Us)</b>\n\n"
                 "👑 <b>Bot Owner:</b> <code>AVATA 🇸🇸</code>\n"
-                "💬 <b>Telegram:</b> @admin\n\n"
+                "💬 <b>Telegram:</b> @avatalamiyamal\n\n"
                 "💡 <i>ប្រសិនបើលោកអ្នកមានចម្ងល់ ឬត្រូវការជំនួយបច្ចេកទេស សូមទាក់ទងមកកាន់ Admin។</i>"
             )
             await safe_reply(event, contact_text, parse_mode="html", buttons=get_menu_buttons())
@@ -1738,7 +1738,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             if not is_admin(event.sender_id, chat_id) and event.sender_id != bot_id:
                 contact_text = (
                     "☎️ <b>ទំនាក់ទំនង Admin</b>\n\n"
-                    "Telegram: @admin\n"
+                    "Telegram: @avatalamiyamal\n"
                     "👑 <b>Bot Owner:</b> <code>AVATA 🇸🇸</code>\n\n"
                     "💡 <i>សូមទំនាក់ទំនង Admin ដើម្បីស្នើសុំសិទ្ធិមើលរបាយការណ៍។</i>"
                 )
