@@ -200,7 +200,7 @@ def get_back_and_close_buttons():
 
 
 async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[Any] = None):
-    """Generates and sends the daily summary report to the target chat with sales comparison."""
+    # Retrieve bot_client from global if needed, but wait! The client passed from scheduler IS bot_client now because we passed bot_client to setup_scheduler!
     chat_id = target_chat_id or config.REPORT_CHAT_ID or config.MONITOR_CHAT_ID
     if not chat_id:
         logger.warning("No REPORT_CHAT_ID or MONITOR_CHAT_ID configured. Cannot send daily summary.")
@@ -659,7 +659,7 @@ def restart_process():
         os._exit(0)
 
 
-def setup_handlers(client: TelegramClient, bot_id: int = 0):
+def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_id: int = 0):
     """Sets up event handlers for incoming messages, commands, and button clicks."""
 
     # 1. Callback query handler for inline button taps
@@ -1231,7 +1231,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             except Exception:
                 await event.edit("🔒 <i>របាយការណ៍ត្រូវបានបិទ (Report Closed)</i>\n👉 <i>ចុច <code>/today</code> ដើម្បីបើកឡើងវិញ</i>", parse_mode="html", buttons=None)
 
-    @client.on(events.CallbackQuery)
+    @bot_client.on(events.CallbackQuery)
     async def callback_handler(event: events.CallbackQuery.Event):
         try:
             await _process_callback(event)
@@ -1244,7 +1244,19 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
 
     # 2. Listener for new messages (monitoring KHQR payments & text commands)
     async def _process_message(event: events.NewMessage.Event):
-        print(f"DEBUG: ទទួលសារ! Text: {event.raw_text!r} | Out: {getattr(event, 'out', False)} | Sender: {event.sender_id} | Chat: {event.chat_id}")
+        # HYBRID ROUTING
+        is_bot = (event.client == bot_client)
+        is_cmd = event.raw_text and event.raw_text.startswith(("/", "."))
+        
+        # 1. Userbot ONLY handles KHQR parsing (no commands)
+        if not is_bot and is_cmd:
+            return
+            
+        # 2. Bot Account ONLY handles commands & buttons (no KHQR parsing, as it can't read bots anyway)
+        if is_bot and not is_cmd:
+            return
+            
+        print(f"DEBUG: [{ 'BOT' if is_bot else 'USER' }] ទទួលសារ! Text: {event.raw_text!r} | Out: {getattr(event, 'out', False)} | Sender: {event.sender_id} | Chat: {event.chat_id}")
         
         # ══════════════════════════════════════════════════════════════
         # ANTI-LOOP GUARDS — Must be the absolute FIRST checks!
@@ -1626,7 +1638,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
                     g_role = await get_user_group_role(client, chat_id, event.sender_id)
 
                     await notify_owner_of_access_request(
-                        client=client,
+                        client=bot_client,
                         user_id=event.sender_id,
                         chat_id=chat_id,
                         user_entity=sender,
@@ -1832,7 +1844,8 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
             else:
                 logger.warning(f"Ignored transaction: {message}")
 
-    @client.on(events.NewMessage(incoming=True, outgoing=True))
+        @user_client.on(events.NewMessage(incoming=True, outgoing=True))
+    @bot_client.on(events.NewMessage(incoming=True, outgoing=True))
     async def message_listener(event: events.NewMessage.Event):
         try:
             await _process_message(event)
@@ -1861,115 +1874,77 @@ def setup_scheduler(client: TelegramClient) -> AsyncIOScheduler:
     return scheduler
 
 
+
 async def start_bot():
     """Main startup routine for the Telegram client."""
-    # 1. Start Cloud Health-check HTTP server immediately for Render/Koyeb so port binds in <0.1s
     await start_health_check_server()
 
     if not config.API_ID or not config.API_HASH:
-        print("\n" + "="*60)
-        print("❌ កំហុស (ERROR): សូមបំពេញ TELEGRAM_API_ID និង TELEGRAM_API_HASH នៅក្នុងឯកសារ .env ជាមុនសិន!")
-        print("អ្នកអាចយក API_ID & API_HASH បានដោយឥតគិតថ្លៃពី: https://my.telegram.org")
-        print("="*60 + "\n")
+        print("Missing API_ID / API_HASH")
+        return
+        
+    if not config.BOT_TOKEN:
+        print("❌ កំហុស (ERROR): សូមបញ្ចូល TELEGRAM_BOT_TOKEN នៅក្នុង Render Environment Variables!")
         return
 
-    # Use StringSession to prevent issues on ephemeral filesystems (Cloud Hosting)
-    client = TelegramClient(StringSession(config.USER_SESSION_STRING), config.API_ID, config.API_HASH)
+    user_client = TelegramClient(StringSession(config.USER_SESSION_STRING), config.API_ID, config.API_HASH)
+    bot_client = TelegramClient('bot_session_file', config.API_ID, config.API_HASH)
 
-    print("🚀 កំពុងដំណើរការ KHQR Daily Report Bot...")
+    print("🚀 កំពុងដំណើរការ Hybrid Bot (Userbot + Bot Account)...")
 
-    await client.connect()
-    if not await client.is_user_authorized():
-        print("\n" + "="*60)
-        print("❌ កំហុស (CRITICAL ERROR):")
-        print("Telegram Session របស់អ្នកមិនត្រឹមត្រូវ (Invalid USER_SESSION_STRING) ឬក៏អ្នកមិនទាន់បានបញ្ចូលវានៅក្នុង Render!")
-        print("សូមដំណើរការ `python generate_session.py` នៅក្នុងកុំព្យូទ័ររបស់អ្នក ដើម្បីទទួលបាន Session String ថ្មី")
-        print("រួចយកទៅដាក់ក្នុង Render Environment Variables ម្តងទៀត!")
-        print("="*60 + "\n")
+    await user_client.connect()
+    if not await user_client.is_user_authorized():
+        print("❌ Invalid USER_SESSION_STRING")
         import sys
         sys.exit(1)
 
-    me = await client.get_me()
-    if me.bot:
-        print(f"✅ Bot បានដំណើរការជោគជ័យជា Bot Account: @{me.username}")
-    else:
-        user_name = me.first_name + (f" {me.last_name}" if me.last_name else "")
-        print(f"✅ បានភ្ជាប់ជោគជ័យជា User Account: {user_name} (@{me.username or 'No username'})")
-        print("💡 គណនីនេះនឹងអានសារពី Bank Bot នៅក្នុង Group បាន ១០០% ដោយគ្មានបញ្ហា Telegram Block Bot-to-Bot!")
-        
-    # Ensure the host account (e.g. +27 72 603 6187) is always a Super Admin
-    if me.id not in config.ADMIN_USER_IDS:
-        config.ADMIN_USER_IDS.append(me.id)
-        config.MASTER_BOT_OWNER_ID = me.id # Set as Master Owner
+    await bot_client.start(bot_token=config.BOT_TOKEN)
 
-    # Setup handlers and scheduler (pass bot_id for anti-loop guard)
-    setup_handlers(client, bot_id=me.id)
-    scheduler = setup_scheduler(client)
+    me_user = await user_client.get_me()
+    me_bot = await bot_client.get_me()
+    
+    print(f"✅ Userbot Connected: @{me_user.username}")
+    print(f"✅ Official Bot Connected: @{me_bot.username}")
+    
+    if me_user.id not in config.ADMIN_USER_IDS:
+        config.ADMIN_USER_IDS.append(me_user.id)
+        config.MASTER_BOT_OWNER_ID = me_user.id
+
+    # Store global bot_client for easy access in handlers
+    global _bot_client
+    _bot_client = bot_client
+
+    setup_handlers(user_client, bot_client, bot_id=me_bot.id)
+    scheduler = setup_scheduler(bot_client)
     scheduler.start()
 
-    # Register official Telegram Bot Commands Menu (Blue Menu button [/] in Telegram)
     try:
         from telethon.tl.functions.bots import SetBotCommandsRequest
         from telethon.tl.types import BotCommand, BotCommandScopeDefault
-        await client(SetBotCommandsRequest(
+        await bot_client(SetBotCommandsRequest(
             scope=BotCommandScopeDefault(),
             lang_code="",
             commands=[
-                BotCommand(command="today", description="📊 មើលរបាយការណ៍លក់ថ្ងៃនេះ (1-Click)"),
+                BotCommand(command="today", description="📊 មើលរបាយការណ៍លក់ថ្ងៃនេះ"),
                 BotCommand(command="yesterday", description="📅 របាយការណ៍ម្សិលមិញ"),
                 BotCommand(command="week", description="🗓 របាយការណ៍ ៧ថ្ងៃចុងក្រោយ"),
                 BotCommand(command="month", description="📈 របាយការណ៍ប្រចាំខែ"),
                 BotCommand(command="year", description="📆 របាយការណ៍ប្រចាំឆ្នាំ"),
-                BotCommand(command="admin", description="👑 ផ្ទាំងបញ្ជាម្ចាស់ Bot (Avata)"),
-                BotCommand(command="status", description="ℹ️ ពិនិត្យស្ថានភាព Bot & Version"),
+                BotCommand(command="admin", description="👑 ផ្ទាំងបញ្ជាម្ចាស់ Bot"),
             ]
         ))
-        logger.info("Registered official Telegram Bot Command Menu successfully.")
     except Exception as e:
-        logger.debug(f"Could not register Bot Commands menu: {e}")
+        logger.debug(f"Could not register Bot Commands: {e}")
 
-    print(f"⏰ ម៉ោងផ្ញើរបាយការណ៍បូកសរុបប្រចាំថ្ងៃ: {config.DAILY_REPORT_TIME} (ម៉ោងនៅកម្ពុជា)")
-    print("📡 កំពុងរង់ចាំ និងស្តាប់សារពីប្រព័ន្ធ KHQR...")
-
-    # Auto sync past messages on startup in background (so bot doesn't miss prior transactions)
     if config.SYNC_ON_STARTUP and config.MONITOR_CHAT_ID:
-        print("🔄 កំពុងទាញយកសារចាស់ៗក្នុង Group មកពិនិត្យដោយស្វ័យប្រវត្ត (Auto History Sync)...")
         from sync_history import sync_previous_messages
-        asyncio.create_task(sync_previous_messages(client, config.MONITOR_CHAT_ID, limit=config.SYNC_LIMIT))
+        asyncio.create_task(sync_previous_messages(user_client, config.MONITOR_CHAT_ID, limit=config.SYNC_LIMIT))
 
-    # Auto notify Bot Owner when updated/started
-    try:
-        if config.ADMIN_USER_ID:
-            uptime_str = get_cambodia_now().strftime("%Y-%m-%d %H:%M:%S")
-            total_tx = db.get_transaction_count()
-            users_count = len(db.list_authorized_users())
-            startup_msg = (
-                f"🚀 <b>ប្រព័ន្ធ Bot បាន Update ទៅកាន់ Version ថ្មីជោគជ័យ!</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🏷️ <b>Version:</b> <code>v{config.BOT_VERSION}</code> (Enterprise Edition)\n"
-                f"⏰ <b>ម៉ោងដំណើរការ:</b> <code>{uptime_str}</code>\n"
-                f"🛡️ <b>ប្រព័ន្ធសុវត្ថិភាព:</b> <code>Strict Bot Owner RBAC (Active)</code>\n"
-                f"📊 <b>ទិន្នន័យក្នុង DB:</b> <code>{total_tx} លើក</code>\n"
-                f"👥 <b>ចំនួនបុគ្គលិកមានសិទ្ធិ:</b> <code>{users_count} នាក់</code>\n\n"
-                f"✅ <i>រាល់មុខងារថ្មីៗ និងការការពារសុវត្ថិភាពត្រូវបាន Update ពេញលេញ។</i>"
-            )
-            # Send message with persistent keyboard docked at bottom of chat
-            await client.send_message(
-                config.ADMIN_USER_ID, 
-                startup_msg, 
-                parse_mode="html", 
-                buttons=get_owner_reply_keyboard()
-            )
-            # Also send interactive Master Admin Control Center
-            panel_text, panel_btns = build_admin_panel()
-            await client.send_message(config.ADMIN_USER_ID, panel_text, parse_mode="html", buttons=panel_btns)
-            logger.info("Sent startup version notification and Admin Panel to Bot Owner.")
-    except Exception as e:
-        logger.debug(f"Could not send startup notification: {e}")
-
-    # Run until disconnected
-    await client.run_until_disconnected()
-
+    import asyncio
+    await asyncio.gather(
+        user_client.run_until_disconnected(),
+        bot_client.run_until_disconnected()
+    )
 
 async def start_health_check_server():
     """Lightweight HTTP server for cloud platforms (Render, Koyeb) to keep service healthy and awake."""
@@ -2003,3 +1978,7 @@ async def start_health_check_server():
         logger.warning(f"Could not start health check server: {e}")
         return None
 
+_ b o t _ c l i e n t  
+ =  
+ N o n e  
+ 
