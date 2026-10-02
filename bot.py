@@ -139,6 +139,15 @@ def get_general_summary_buttons(summary: Dict[str, Any]):
     ]
 
 
+def get_back_and_close_buttons():
+    return [
+        [
+            Button.inline("🔙 ត្រឡប់ក្រោយ", data=b"btn_reports_menu"),
+            Button.inline("❌ បិទ", data=b"btn_exit")
+        ]
+    ]
+
+
 async def send_daily_summary(client: TelegramClient, target_chat_id: Optional[Any] = None):
     """Generates and sends the daily summary report to the target chat with sales comparison."""
     chat_id = target_chat_id or config.REPORT_CHAT_ID or config.MONITOR_CHAT_ID
@@ -1150,7 +1159,7 @@ def setup_handlers(client: TelegramClient, bot_id: int = 0):
         elif data == b"btn_history":
             txns = db.get_recent_transactions(limit=5)
             msg = format_recent_transactions(txns, limit=5)
-            await safe_edit_or_respond(event, msg, buttons=get_reports_menu_buttons())
+            await safe_edit_or_respond(event, msg, buttons=get_back_and_close_buttons())
 
         elif data == b"btn_exit":
             try:
