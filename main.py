@@ -57,13 +57,24 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# Safely ensure unbuffered / line-buffered UTF-8 output on all platforms (Windows & Render Linux)
-if hasattr(sys.stdout, 'reconfigure'):
+# Safely handle pythonw (where stdout/stderr are None) and ensure UTF-8 encoding
+if sys.stdout is None:
+    try:
+        sys.stdout = open("bot.log", "a", encoding="utf-8", buffering=1)
+    except Exception:
+        pass
+elif hasattr(sys.stdout, 'reconfigure'):
     try:
         sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
     except Exception:
         pass
-if hasattr(sys.stderr, 'reconfigure'):
+
+if sys.stderr is None:
+    try:
+        sys.stderr = open("bot.log", "a", encoding="utf-8", buffering=1)
+    except Exception:
+        pass
+elif hasattr(sys.stderr, 'reconfigure'):
     try:
         sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)
     except Exception:

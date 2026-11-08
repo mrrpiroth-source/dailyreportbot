@@ -54,6 +54,9 @@ logger = logging.getLogger("KHQR_Bot")
 # Initialize database
 db = Database(config.DB_PATH)
 
+# Message deduplication tracking
+_seen_message_ids: Dict[Any, float] = {}
+
 
 def get_menu_buttons():
     """Returns interactive inline buttons for main menu."""
@@ -1388,19 +1391,32 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
         # GUARD 0: Message Deduplication Guard
         # Prevents processing or replying to the exact same message event multiple times
         # ══════════════════════════════════════════════════════════════
-        msg_dedup_key = (event.chat_id, getattr(event, 'id', None))
+        msg_obj = getattr(event, 'message', None)
+        msg_id = getattr(msg_obj, 'id', None) if msg_obj is not None else getattr(event, 'id', None)
+        msg_dedup_key = (event.chat_id, msg_id)
         current_ts = time.time()
-        if not hasattr(_process_message, '_seen_msgs'):
-            _process_message._seen_msgs = {}
-        # Prune old cache entries (> 60 seconds)
-        if len(_process_message._seen_msgs) > 100:
-            _process_message._seen_msgs = {k: v for k, v in _process_message._seen_msgs.items() if current_ts - v < 60}
         
-        if getattr(event, 'id', None) is not None and msg_dedup_key in _process_message._seen_msgs:
-            logger.debug(f"Duplicate message event ignored: {msg_dedup_key}")
-            return
-        if getattr(event, 'id', None) is not None:
-            _process_message._seen_msgs[msg_dedup_key] = current_ts
+        global _seen_message_ids
+        if msg_id is not None:
+            if msg_dedup_key in _seen_message_ids:
+                logger.info(f"🛡️ [DEDUP] Duplicate message event blocked: Chat {event.chat_id}, Msg {msg_id}")
+                return
+            _seen_message_ids[msg_dedup_key] = current_ts
+            if len(_seen_message_ids) > 200:
+                for k in list(_seen_message_ids.keys()):
+                    if current_ts - _seen_message_ids[k] > 300:
+                        _seen_message_ids.pop(k, None)
+
+        # GUARD 0b: Stale Command Replay Guard
+        # Prevents executing old commands re-delivered by MTProto GetChannelDifference
+        if is_cmd and msg_obj is not None:
+            msg_date = getattr(msg_obj, 'date', None)
+            if msg_date:
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
+                age_sec = (now_utc - msg_date).total_seconds()
+                if age_sec > 25:
+                    logger.info(f"🛡️ [STALE] Skipping replayed command (age {age_sec:.1f}s): {text_raw}")
+                    return
 
         # ══════════════════════════════════════════════════════════════
         # ANTI-LOOP GUARDS — Must be the absolute FIRST checks!
