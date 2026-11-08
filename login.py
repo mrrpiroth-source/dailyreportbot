@@ -58,12 +58,35 @@ async def main():
             return
             
     me = await client.get_me()
-    print(f"\n✅ ចូលប្រើប្រាស់បានជោគជ័យជាគណនី: {me.first_name}")
+    print(f"\n✅ ចូលប្រើប្រាស់បានជោគជ័យជាគណនី: {me.first_name} (@{me.username}) ID: {me.id}")
     
     session_string = client.session.save()
+    
+    # Auto-save session string and phone number into .env
+    import re
+    if os.path.exists(".env"):
+        with open(".env", "r", encoding="utf-8") as f:
+            env_content = f.read()
+        env_content = re.sub(r"USER_SESSION_STRING=[^\r\n]*", f"USER_SESSION_STRING={session_string}", env_content)
+        env_content = re.sub(r"TELEGRAM_PHONE_NUMBER=[^\r\n]*", f"TELEGRAM_PHONE_NUMBER={PHONE_NUMBER_INPUT}", env_content)
+        with open(".env", "w", encoding="utf-8") as f:
+            f.write(env_content)
+        print("✅ បានរក្សាទុក Session String និងលេខទូរសព្ទទៅក្នុងឯកសារ .env ដោយស្វ័យប្រវត្តិ!")
+
+    # Auto-save SQLite session file
+    try:
+        from telethon.sessions import SQLiteSession
+        sql_sess = SQLiteSession("user_session")
+        sql_sess.set_dc(client.session.dc_id, client.session.server_address, client.session.port)
+        sql_sess.auth_key = client.session.auth_key
+        sql_sess.save()
+        print("✅ បានរក្សាទុក user_session.session សម្រាប់ប្រើប្រាស់ក្នុងកុំព្យូទ័រនេះ!")
+    except Exception as sqle:
+        print(f"⚠️ SQLite session save: {sqle}")
+
     print("\n==================================================")
     print("✅ នេះគឺជា USER_SESSION_STRING ថ្មីរបស់អ្នក:")
-    print("👇 សូម Copy កូដខាងក្រោមនេះ ទៅកាន់វិបសាយ Render")
+    print("👇 សូម Copy កូដខាងក្រោមនេះ ទៅកាន់វិបសាយ Render (បើមានប្រើ Render):")
     print("==================================================")
     print(session_string)
     print("==================================================\n")

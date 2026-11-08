@@ -6,8 +6,26 @@ import sys
 import time
 import asyncio
 import os
+import socket
 from threading import Thread
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+def acquire_single_instance_lock(port=28472):
+    """
+    Binds a local loopback socket to prevent multiple instances of the bot 
+    from running concurrently on the same machine.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(('127.0.0.1', port))
+        s.listen(1)
+        return s
+    except socket.error:
+        print("\n" + "=" * 65)
+        print("⚠️ [DUPLICATE BLOCKED] Bot កំពុងដំណើរការរួចរាល់ហើយនៅលើកុំព្យូទ័រនេះ!")
+        print("👉 ដើម្បីចៀសវាងការឆ្លើយតបត្រួតគ្នា ២ ដង (Duplicate Messages) ផ្ទាំងថ្មីនេះនឹងត្រូវបិទ។")
+        print("=" * 65 + "\n")
+        sys.exit(0)
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -54,6 +72,7 @@ if hasattr(sys.stderr, 'reconfigure'):
 from bot import start_bot
 
 if __name__ == "__main__":
+    _instance_lock = acquire_single_instance_lock()
     # Start the dummy web server to satisfy Render's web service requirement
     keep_alive()
     print("🌐 Web Server ត្រូវបានចាប់ផ្តើម (Port bindings for Render active).")

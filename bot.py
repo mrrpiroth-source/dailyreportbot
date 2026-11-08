@@ -1385,6 +1385,24 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
         logger.info(f"[{ 'BOT' if is_bot else 'USER' }] Received msg: {event.raw_text!r} | Out: {getattr(event, 'out', False)} | Sender: {event.sender_id} | Chat: {event.chat_id}")
         
         # ══════════════════════════════════════════════════════════════
+        # GUARD 0: Message Deduplication Guard
+        # Prevents processing or replying to the exact same message event multiple times
+        # ══════════════════════════════════════════════════════════════
+        msg_dedup_key = (event.chat_id, getattr(event, 'id', None))
+        current_ts = time.time()
+        if not hasattr(_process_message, '_seen_msgs'):
+            _process_message._seen_msgs = {}
+        # Prune old cache entries (> 60 seconds)
+        if len(_process_message._seen_msgs) > 100:
+            _process_message._seen_msgs = {k: v for k, v in _process_message._seen_msgs.items() if current_ts - v < 60}
+        
+        if getattr(event, 'id', None) is not None and msg_dedup_key in _process_message._seen_msgs:
+            logger.debug(f"Duplicate message event ignored: {msg_dedup_key}")
+            return
+        if getattr(event, 'id', None) is not None:
+            _process_message._seen_msgs[msg_dedup_key] = current_ts
+
+        # ══════════════════════════════════════════════════════════════
         # ANTI-LOOP GUARDS — Must be the absolute FIRST checks!
         # These prevent the "89 duplicate messages" infinite loop bug.
         # ══════════════════════════════════════════════════════════════
@@ -2048,7 +2066,17 @@ async def start_bot():
 
     # Use in-memory StringSession for official bot to prevent sqlite locking issues on container platforms
     bot_client = TelegramClient(StringSession(), config.API_ID, config.API_HASH)
-    user_client = TelegramClient(StringSession(config.USER_SESSION_STRING), config.API_ID, config.API_HASH)
+
+    # 2. Setup user_client (fallback to user_session.session if USER_SESSION_STRING not set)
+    user_session_target = None
+    if config.USER_SESSION_STRING:
+        user_session_target = StringSession(config.USER_SESSION_STRING)
+    elif os.path.exists("user_session.session"):
+        user_session_target = "user_session"
+    else:
+        user_session_target = StringSession()
+
+    user_client = TelegramClient(user_session_target, config.API_ID, config.API_HASH)
 
     logger.info("🚀 កំពុងដំណើរការ Hybrid Bot (Bot Account + Userbot)...")
 
@@ -2063,14 +2091,15 @@ async def start_bot():
 
     # 2. Attempt to start Userbot for reading ABA Bank messages in groups
     userbot_active = False
-    if config.USER_SESSION_STRING:
+    if config.USER_SESSION_STRING or os.path.exists("user_session.session"):
         try:
             logger.info("🔄 កំពុងភ្ជាប់ Userbot...")
             await user_client.connect()
             if await user_client.is_user_authorized():
                 me_user = await user_client.get_me()
                 userbot_active = True
-                logger.info(f"✅ Userbot Connected: @{me_user.username}")
+                user_display = me_user.username or me_user.first_name or str(me_user.id)
+                logger.info(f"✅ Userbot Connected: {user_display} (ID: {me_user.id})")
                 if me_user.id not in config.ADMIN_USER_IDS:
                     config.ADMIN_USER_IDS.append(me_user.id)
             else:
