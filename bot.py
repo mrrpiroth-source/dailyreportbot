@@ -1251,7 +1251,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
             summary = db.get_summary_by_date(today_str)
             khmer_date = format_khmer_date(today_str)
             now_time = datetime.datetime.now().strftime("%I:%M %p")
-            msg = f"<b>KronLive</b>\nរបាយការណ៍លក់ប្រចាំថ្ងៃ <b>{khmer_date}</b>\nម៉ោងបូកសរុប <b>{now_time}</b>"
+            msg = f"របាយការណ៍លក់ប្រចាំថ្ងៃ <b>{khmer_date}</b>\nម៉ោងបូកសរុប <b>{now_time}</b>"
             await safe_edit_or_respond(event, msg, buttons=get_daily_summary_buttons(summary, "today"))
             
         elif data == b"btn_compare_today":
