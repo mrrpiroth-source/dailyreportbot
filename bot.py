@@ -315,12 +315,22 @@ async def safe_edit_or_respond(event, text: str, buttons=None, parse_mode: str =
         logger.error(f"Error in safe_edit_or_respond: {e}")
 
 
-async def safe_reply(event, text: str, buttons=None, parse_mode: str = "html", **kwargs):
+async def safe_reply(event, text: str, buttons=None, parse_mode: str = "html", delete_trigger: bool = True, **kwargs):
     """
-    Safely replies to a message, catching Telegram FloodWait and transient errors.
+    Safely sends a message into the chat without attaching the quoted reply header (mention).
+    Optionally deletes the triggering user command (e.g. /menu) to keep the group tidy.
     """
+    # Delete the triggering message in groups to keep chat clean
+    if delete_trigger and hasattr(event, 'delete'):
+        try:
+            if not getattr(event, 'is_private', False):
+                await event.delete()
+        except Exception:
+            pass
+
     try:
-        return await event.reply(text, parse_mode=parse_mode, buttons=buttons, **kwargs)
+        # Using respond instead of reply removes the quote block (mention header)
+        return await event.respond(text, parse_mode=parse_mode, buttons=buttons, **kwargs)
     except FloodWaitError as e:
         logger.warning(f"Telegram FloodWait on reply: {e.seconds}s")
         await asyncio.sleep(min(e.seconds, 5))
@@ -1562,7 +1572,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
                 text_panel, btns = build_group_selector()
             else:
                 text_panel, btns = build_group_management_panel(group_query)
-            await event.reply(text_panel, parse_mode="html", buttons=btns)
+            await safe_reply(event, text_panel, parse_mode="html", buttons=btns)
             return
 
         if cmd in ("/admin", ".admin", "/panel", ".panel"):
@@ -1576,7 +1586,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
                 )
                 return
             text_panel, btns = build_admin_panel()
-            await event.reply(text_panel, parse_mode="html", buttons=btns)
+            await safe_reply(event, text_panel, parse_mode="html", buttons=btns)
             return
 
         # 0. Start command in private chat: Welcome users with buttons
@@ -1639,7 +1649,7 @@ def setup_handlers(user_client: TelegramClient, bot_client: TelegramClient, bot_
                 f"⏰ <b>ម៉ោងបច្ចុប្បន្ន:</b> <code>{uptime_str}</code>\n\n"
                 f"✅ <i>ប្រព័ន្ធកំពុងដំណើរការកំណែចុងក្រោយបំផុតដោយជោគជ័យ។</i>"
             )
-            await event.reply(status_text, parse_mode="html")
+            await safe_reply(event, status_text, parse_mode="html")
             return
 
         # Debug command to diagnose "Not working" issues
